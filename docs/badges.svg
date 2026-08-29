@@ -1,0 +1,15 @@
+<svg width="620" height="28" viewBox="0 0 620 28" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Status badges: MIT licensed, client-side signing, no server custody">
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="500">
+    <rect x="0" y="0" width="100" height="26" rx="5" fill="#E8E4DB"/>
+    <text x="50" y="17" text-anchor="middle" fill="#1C1E21">MIT license</text>
+
+    <rect x="112" y="0" width="168" height="26" rx="5" fill="#E9F1EC"/>
+    <text x="196" y="17" text-anchor="middle" fill="#2D5F4F">signs entirely in-browser</text>
+
+    <rect x="292" y="0" width="150" height="26" rx="5" fill="#E9F1EC"/>
+    <text x="367" y="17" text-anchor="middle" fill="#2D5F4F">no server custody</text>
+
+    <rect x="454" y="0" width="166" height="26" rx="5" fill="#FBEEEC"/>
+    <text x="537" y="17" text-anchor="middle" fill="#8F332C">self-custody: no recovery</text>
+  </g>
+</svg>

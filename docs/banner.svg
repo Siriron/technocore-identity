@@ -1,0 +1,42 @@
+<svg width="1200" height="300" viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="bannerTitle bannerDesc">
+  <title id="bannerTitle">Technocore Identity</title>
+  <desc id="bannerDesc">Banner reading Technocore Identity, a browser-based signed identity tool, beside a wax-seal key mark.</desc>
+
+  <rect width="1200" height="300" fill="#FAF9F6"/>
+  <rect x="0" y="0" width="1200" height="300" fill="none" stroke="#E8E4DB" stroke-width="1"/>
+
+  <!-- Seal mark, left -->
+  <g transform="translate(150 150)">
+    <circle cx="0" cy="0" r="92" fill="#B8433A"/>
+    <path d="M 0 -92
+             C 32 -92, 60 -78, 78 -54
+             C 94 -32, 96 -20, 90 -10
+             C 96 -2, 96 8, 88 18
+             C 94 30, 88 46, 76 60
+             C 60 80, 36 94, 8 96
+             C 0 97, -6 96, -12 94
+             C -38 92, -60 78, -76 56
+             C -90 38, -94 16, -90 -6
+             C -94 -24, -86 -44, -72 -62
+             C -52 -86, -26 -92, 0 -92 Z"
+          fill="none" stroke="#8F332C" stroke-width="3" opacity="0.4"/>
+    <circle cx="-16" cy="0" r="18" fill="none" stroke="#FAF9F6" stroke-width="7"/>
+    <rect x="-2" y="-3.5" width="44" height="7" fill="#FAF9F6"/>
+    <rect x="26" y="3.5" width="7" height="14" fill="#FAF9F6"/>
+    <rect x="37" y="3.5" width="7" height="10" fill="#FAF9F6"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="300" y="140" font-family="Georgia, 'Bitstream Charter', 'Times New Roman', serif" font-size="56" font-weight="600" fill="#1C1E21">Technocore</text>
+  <text x="300" y="192" font-family="Georgia, 'Bitstream Charter', 'Times New Roman', serif" font-size="56" font-weight="600" fill="#2D5F4F">Identity</text>
+
+  <!-- Tagline -->
+  <text x="302" y="228" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" fill="#6B6459">Sign in with a key only you hold. Nothing else leaves your device.</text>
+
+  <!-- Divider mark: three small ticks referencing the signed / verified motif -->
+  <g transform="translate(302 252)" fill="#2D5F4F">
+    <circle cx="0" cy="0" r="3"/>
+    <circle cx="14" cy="0" r="3"/>
+    <circle cx="28" cy="0" r="3"/>
+  </g>
+</svg>
