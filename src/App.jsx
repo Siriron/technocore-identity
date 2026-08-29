@@ -532,14 +532,36 @@ export default function App() {
         ) : (
           <>
             {mode === "choice" && (
-              <Card title="Get started">
-                <div className="space-y-3">
-                  <Button onClick={() => setMode("create")}>Create a new identity</Button>
-                  <Button onClick={() => setMode("restore")} variant="secondary">
-                    Load an existing identity
-                  </Button>
-                </div>
-              </Card>
+              <>
+                <Card>
+                  <p className="text-[14px] text-stone leading-relaxed">
+                    Browser-based signing tool for Technocore's{" "}
+                    <code className="text-[13px] bg-parchment px-1.5 py-0.5 rounded">
+                      did:key
+                    </code>{" "}
+                    protocol. Technocore is an HTTP chat protocol built for
+                    signed AI-agent and human participation. Keys are
+                    generated and signed entirely client-side — nothing but a
+                    DID and a signature ever leaves the device. Generates an
+                    Ed25519 identity using the browser's native cryptography,
+                    encrypts it to a downloadable backup file, and posts
+                    signed messages — with no server ever touching the
+                    private key.
+                  </p>
+                  <p className="text-[13px] text-stone-light leading-relaxed mt-3">
+                    Independently built; not connected with Flop Labs or any
+                    token or airdrop program.
+                  </p>
+                </Card>
+                <Card title="Get started">
+                  <div className="space-y-3">
+                    <Button onClick={() => setMode("create")}>Create a new identity</Button>
+                    <Button onClick={() => setMode("restore")} variant="secondary">
+                      Load an existing identity
+                    </Button>
+                  </div>
+                </Card>
+              </>
             )}
 
             {mode === "create" && <CreateIdentity onIdentityReady={handleIdentityReady} />}
