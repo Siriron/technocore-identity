@@ -135,6 +135,14 @@ function CreateIdentity({ onIdentityReady }) {
     );
   }
 
+  const [showBackupText, setShowBackupText] = useState(false);
+
+  function handleCopyBackupText() {
+    const text = JSON.stringify(generated.vaultObject, null, 2);
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setDownloadedOnce(true);
+  }
+
   if (step === "backup") {
     return (
       <Card eyebrow="Step 2 of 2" title="Save your backup file">
@@ -151,12 +159,44 @@ function CreateIdentity({ onIdentityReady }) {
             </div>
           </div>
           <StatusMessage tone="warn">
-            Download the backup file now. Closing this tab without
-            downloading means starting over with a new identity.
+            Save the backup now. Closing this tab without saving it means
+            starting over with a new identity.
           </StatusMessage>
           <Button onClick={handleDownload} variant="secondary">
             Download backup file
           </Button>
+          <button
+            type="button"
+            onClick={() => setShowBackupText((v) => !v)}
+            className="w-full text-center text-[13px] text-stone underline underline-offset-2 py-1"
+          >
+            {showBackupText ? "Hide text version" : "Download not working? Show text to copy instead"}
+          </button>
+          {showBackupText && (
+            <div className="space-y-2 animate-fade-in">
+              <StatusMessage tone="neutral">
+                Select all the text below, copy it, and paste it somewhere
+                safe — a notes app or password manager. This is the same
+                content as the downloaded file, just as plain text.
+              </StatusMessage>
+              <TextArea
+                readOnly
+                value={JSON.stringify(generated.vaultObject, null, 2)}
+                onClick={(e) => {
+                  e.target.select();
+                  setDownloadedOnce(true);
+                }}
+                onFocus={(e) => {
+                  e.target.select();
+                  setDownloadedOnce(true);
+                }}
+                className="font-mono text-[11px] min-h-[160px]"
+              />
+              <Button onClick={handleCopyBackupText} variant="secondary">
+                Copy to clipboard
+              </Button>
+            </div>
+          )}
           {downloadedOnce && (
             <label className="flex items-start gap-3 cursor-pointer animate-fade-in">
               <input
@@ -166,7 +206,7 @@ function CreateIdentity({ onIdentityReady }) {
                 className="mt-0.5 h-5 w-5 rounded accent-verified shrink-0"
               />
               <span className="text-[13px] text-stone leading-relaxed">
-                I've saved the backup file somewhere durable — not just this
+                I've saved the backup somewhere durable — not just this
                 device's downloads folder.
               </span>
             </label>
@@ -185,10 +225,23 @@ function CreateIdentity({ onIdentityReady }) {
 // ---------- restore from existing backup file ----------
 
 function RestoreIdentity({ onIdentityReady, onCancel }) {
+  const [inputMode, setInputMode] = useState("file"); // "file" | "paste"
   const [vaultObject, setVaultObject] = useState(null);
+  const [pastedText, setPastedText] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  function parseVaultText(text) {
+    try {
+      const parsed = JSON.parse(text);
+      setVaultObject(parsed);
+      setError("");
+    } catch {
+      setError("That doesn't look like valid backup file contents — check for missing or extra characters.");
+      setVaultObject(null);
+    }
+  }
 
   async function handleFile(e) {
     setError("");
@@ -196,11 +249,29 @@ function RestoreIdentity({ onIdentityReady, onCancel }) {
     if (!file) return;
     try {
       const text = await file.text();
-      setVaultObject(JSON.parse(text));
+      parseVaultText(text);
     } catch {
       setError("Could not read that file as a Technocore identity backup.");
       setVaultObject(null);
     }
+  }
+
+  function handlePasteChange(e) {
+    const text = e.target.value;
+    setPastedText(text);
+    if (!text.trim()) {
+      setVaultObject(null);
+      setError("");
+      return;
+    }
+    parseVaultText(text);
+  }
+
+  function switchMode(mode) {
+    setInputMode(mode);
+    setVaultObject(null);
+    setPastedText("");
+    setError("");
   }
 
   async function handleUnlock() {
@@ -219,15 +290,51 @@ function RestoreIdentity({ onIdentityReady, onCancel }) {
 
   return (
     <Card eyebrow="Restore" title="Load an existing identity">
-      <div className="space-y-4">
-        <Field label="Backup file">
-          <input
-            type="file"
-            accept="application/json"
-            onChange={handleFile}
-            className="w-full text-[14px] text-stone file:mr-3 file:h-[44px] file:px-4 file:rounded-control file:border-0 file:bg-parchment file:text-ink file:font-medium file:text-[13px]"
-          />
-        </Field>
+      <div className="space-y-5">
+        <div className="flex gap-1 bg-parchment rounded-control p-1">
+          <button
+            type="button"
+            onClick={() => switchMode("file")}
+            className={`flex-1 h-9 rounded-[10px] text-[13px] font-medium transition-colors ${
+              inputMode === "file" ? "bg-panel text-ink shadow-soft" : "text-stone"
+            }`}
+          >
+            Choose file
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode("paste")}
+            className={`flex-1 h-9 rounded-[10px] text-[13px] font-medium transition-colors ${
+              inputMode === "paste" ? "bg-panel text-ink shadow-soft" : "text-stone"
+            }`}
+          >
+            Paste text
+          </button>
+        </div>
+
+        {inputMode === "file" ? (
+          <Field label="Backup file">
+            <input
+              type="file"
+              accept="application/json"
+              onChange={handleFile}
+              className="w-full text-[14px] text-stone file:mr-3 file:h-[44px] file:px-4 file:rounded-control file:border-0 file:bg-parchment file:text-ink file:font-medium file:text-[13px]"
+            />
+          </Field>
+        ) : (
+          <Field
+            label="Backup file contents"
+            hint="Open the backup file in any text or notes app, copy everything, and paste it here."
+          >
+            <TextArea
+              value={pastedText}
+              onChange={handlePasteChange}
+              placeholder='{"format":"technocore-web-identity-v1", ...}'
+              className="font-mono text-[12px]"
+            />
+          </Field>
+        )}
+
         {vaultObject && (
           <div className="bg-parchment rounded-control px-4 py-3 animate-fade-in">
             <span className="block text-[11px] uppercase tracking-wide text-stone-light font-medium">
