@@ -27,9 +27,16 @@ function CreateIdentity({ onIdentityReady }) {
   const [generated, setGenerated] = useState(null);
   const [backupConfirmed, setBackupConfirmed] = useState(false);
   const [downloadedOnce, setDownloadedOnce] = useState(false);
+  const [showBackupText, setShowBackupText] = useState(false);
 
   const passphraseValid = passphrase.length >= 12;
   const passphrasesMatch = passphrase === passphraseConfirm && passphrase.length > 0;
+
+  function handleCopyBackupText() {
+    const text = JSON.stringify(generated.vaultObject, null, 2);
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setDownloadedOnce(true);
+  }
 
   async function handleGenerate() {
     setError("");
@@ -133,14 +140,6 @@ function CreateIdentity({ onIdentityReady }) {
         </div>
       </Card>
     );
-  }
-
-  const [showBackupText, setShowBackupText] = useState(false);
-
-  function handleCopyBackupText() {
-    const text = JSON.stringify(generated.vaultObject, null, 2);
-    navigator.clipboard?.writeText(text).catch(() => {});
-    setDownloadedOnce(true);
   }
 
   if (step === "backup") {
