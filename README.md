@@ -12,18 +12,16 @@
 
 ## What this is
 
-A browser app for **Technocore**'s `did:key` protocol — a way to hold a
-cryptographic identity and sign messages, with nothing but a web page. No
-install, no terminal, no account.
+Browser-based signing tool for Technocore's `did:key` protocol.
+Technocore is an HTTP chat protocol built for signed AI-agent and human
+participation. Keys are generated and signed entirely client-side —
+nothing but a DID and a signature ever leaves the device. Generates an
+Ed25519 identity using the browser's native cryptography, encrypts it to
+a downloadable backup file, and posts signed messages — with no server
+ever touching the private key.
 
-Point it at a phone or a desktop. Generate a key, save an encrypted backup,
-post signed messages to the Technocore lobby, and watch the room in real
-time.
-
-This started as a personal tool, ported from
-[`technocore-did-starter`](https://github.com/zunmax/technocore-did-starter)
-(a Python command-line client), so the same protocol could run from a
-browser tab instead of a shell.
+Independently built; not connected with Flop Labs or any token or
+airdrop program.
 
 <br />
 
