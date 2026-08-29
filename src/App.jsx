@@ -14,8 +14,39 @@ import { SealMark } from "./components/SealMark.jsx";
 import { DocsView } from "./components/DocsView.jsx";
 
 const LOBBY_ROOM = "lobby";
+const TECHNOCORE_ROOM = "technocore";
 const REFRESH_INTERVAL_MS = 8000;
 const LOCAL_STORAGE_KEY = "technocore-web-vault-v1";
+const PROGRESS_STORAGE_KEY = "technocore-web-progress-v1";
+
+const CONTRIBUTION_FORMATS = [
+  { id: "video", label: "Video or stream" },
+  { id: "thread", label: "X thread" },
+  { id: "writing", label: "Written piece" },
+  { id: "diagram", label: "Diagram" },
+  { id: "translation", label: "Translation" },
+  { id: "code", label: "Code or tool" },
+];
+
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(PROGRESS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveProgress(partial) {
+  try {
+    const current = loadProgress();
+    const next = { ...current, ...partial };
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return { ...loadProgress(), ...partial };
+  }
+}
 
 // ---------- identity creation flow ----------
 
@@ -375,6 +406,414 @@ function RestoreIdentity({ onIdentityReady, onCancel }) {
   );
 }
 
+// ---------- pipeline step: introduction ----------
+
+function Introduction({ identity, onDone }) {
+  const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState("");
+  const [posted, setPosted] = useState(null);
+
+  async function handlePost() {
+    setError("");
+    if (!text.trim()) return;
+    setPosting(true);
+    try {
+      const result = await postSignedMessage(identity.privateKey, identity.did, LOBBY_ROOM, text);
+      setPosted(result.posted);
+      saveProgress({ introSeq: result.posted.seq, introText: text });
+    } catch (err) {
+      setError(err instanceof NetworkError ? err.message : `Could not post: ${err.message}`);
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <Card eyebrow="Step 2 of 6" title="Introduce yourself">
+      <div className="space-y-5">
+        <p className="text-[14px] text-stone leading-relaxed">
+          One signed message to the lobby — the first public proof that your
+          key works and this DID is yours. Say who you are and what you plan
+          to make, in your own words.
+        </p>
+        <Field label="Your introduction" hint="One honest sentence beats a template — identical messages are easy to spot.">
+          <TextArea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="I build Telegram bots. Making a short explainer on what a signature actually proves."
+            maxLength={4096}
+          />
+        </Field>
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-stone-light font-mono">{text.length}/4096</span>
+        </div>
+        {error && <StatusMessage tone="bad">{error}</StatusMessage>}
+        {posted ? (
+          <>
+            <StatusMessage tone="good">
+              Posted as #{posted.seq} — this is your receipt, saved to this
+              device.
+            </StatusMessage>
+            <Button onClick={() => onDone(posted.seq)}>Next: make something →</Button>
+          </>
+        ) : (
+          <Button onClick={handlePost} disabled={posting || !text.trim()} variant="seal">
+            {posting ? "Signing & posting…" : "Sign & publish to lobby"}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------- pipeline step: contribution builder ----------
+
+function ContributionBuilder({ onDone }) {
+  const [format, setFormat] = useState(null);
+  const [url, setUrl] = useState("");
+  const [checks, setChecks] = useState({
+    mentionsFlop: false,
+    didInPost: false,
+    publicPermanent: false,
+    selfMade: false,
+  });
+  const [error, setError] = useState("");
+
+  const allChecked = Object.values(checks).every(Boolean);
+  const urlValid = (() => {
+    if (!url.trim()) return false;
+    try {
+      const parsed = new URL(url.trim());
+      return parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  })();
+  const canContinue = format && urlValid && allChecked;
+
+  function toggle(key) {
+    setChecks((c) => ({ ...c, [key]: !c[key] }));
+  }
+
+  function handleContinue() {
+    if (!canContinue) {
+      setError("Pick a format, add an https:// link, and confirm every item below.");
+      return;
+    }
+    setError("");
+    saveProgress({ contributionFormat: format, contributionUrl: url.trim() });
+    onDone({ format, url: url.trim() });
+  }
+
+  return (
+    <Card eyebrow="Step 3 of 6" title="Make something useful">
+      <div className="space-y-5">
+        <p className="text-[14px] text-stone leading-relaxed">
+          This is the real work — something that leaves a stranger knowing
+          more about Technocore than they did before. Not made it yet? Your
+          progress is saved; come back whenever you're ready.
+        </p>
+        <div>
+          <span className="block text-[13px] font-medium text-stone mb-2">What are you making?</span>
+          <div className="grid grid-cols-2 gap-2">
+            {CONTRIBUTION_FORMATS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFormat(f.id)}
+                className={`h-[52px] rounded-control text-[13px] font-medium border transition-colors ${
+                  format === f.id
+                    ? "bg-verified-light border-verified text-verified-dark"
+                    : "border-hairline-strong text-ink hover:bg-parchment"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Field label="Public link to what you made" hint="Must stay reachable — delete it later and your record points at nothing.">
+          <TextInput
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://…"
+          />
+        </Field>
+        <div className="space-y-2.5">
+          {[
+            ["mentionsFlop", "It mentions @flop_labs"],
+            ["didInPost", "My DID is written in the post itself"],
+            ["publicPermanent", "It is public and I will not delete it"],
+            ["selfMade", "I made it myself, and somebody will get something out of it"],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checks[key]}
+                onChange={() => toggle(key)}
+                className="mt-0.5 h-5 w-5 rounded accent-verified shrink-0"
+              />
+              <span className="text-[13px] text-stone leading-relaxed">{label}</span>
+            </label>
+          ))}
+        </div>
+        {error && <StatusMessage tone="bad">{error}</StatusMessage>}
+        <Button onClick={handleContinue} disabled={!canContinue}>
+          Next: record it →
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+// ---------- pipeline step: record contribution ----------
+
+function RecordContribution({ identity, contribution, onDone }) {
+  const [description, setDescription] = useState(
+    `Made a ${CONTRIBUTION_FORMATS.find((f) => f.id === contribution.format)?.label.toLowerCase() || "contribution"}: ${contribution.url}`
+  );
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState("");
+  const [posted, setPosted] = useState(null);
+
+  async function handlePublish() {
+    setError("");
+    if (!description.trim()) return;
+    setPosting(true);
+    try {
+      const result = await postSignedMessage(
+        identity.privateKey,
+        identity.did,
+        TECHNOCORE_ROOM,
+        description
+      );
+      setPosted(result.posted);
+      saveProgress({ recordSeq: result.posted.seq, recordText: description });
+    } catch (err) {
+      setError(err instanceof NetworkError ? err.message : `Could not post: ${err.message}`);
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <Card eyebrow="Step 4 of 6" title="Put it on the record">
+      <div className="space-y-5">
+        <p className="text-[14px] text-stone leading-relaxed">
+          A second signed message, posted to the technocore room, tying your
+          work to your DID — in public, permanently. Describe what someone
+          will learn from it, then publish. Edit freely first.
+        </p>
+        <Field label="Message" hint={`Posts to the ${TECHNOCORE_ROOM} room, signed by your DID.`}>
+          <TextArea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={4096}
+          />
+        </Field>
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-stone-light font-mono">{description.length}/4096</span>
+        </div>
+        {error && <StatusMessage tone="bad">{error}</StatusMessage>}
+        {posted ? (
+          <>
+            <StatusMessage tone="good">Published as #{posted.seq}.</StatusMessage>
+            <Button onClick={() => onDone(posted.seq)}>Next: share it →</Button>
+          </>
+        ) : (
+          <Button onClick={handlePublish} disabled={posting || !description.trim()} variant="seal">
+            {posting ? "Signing & publishing…" : `Sign & publish to ${TECHNOCORE_ROOM}`}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------- pipeline step: share ----------
+
+function SharePrompt({ identity, progress, onDone }) {
+  const [copied, setCopied] = useState(false);
+
+  const shareText = `Just made my DID on @flop_labs' Technocore protocol and put a real contribution on the record.\n\nDID: ${identity.did}\nRecord: technocore.chat/humans#r/${TECHNOCORE_ROOM} (seq #${progress.recordSeq})\n\n${progress.contributionUrl || ""}`;
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(shareText).catch(() => {});
+    setCopied(true);
+  }
+
+  return (
+    <Card eyebrow="Step 5 of 6" title="Share it">
+      <div className="space-y-5">
+        <p className="text-[14px] text-stone leading-relaxed">
+          Post this on X so your work and your identity sit together in
+          public. Made an X thread? This belongs at the end of that thread,
+          not as a separate post.
+        </p>
+        <div className="bg-parchment rounded-control px-4 py-3">
+          <pre className="text-[13px] text-ink whitespace-pre-wrap break-words font-sans">
+            {shareText}
+          </pre>
+        </div>
+        <div className="flex flex-col md:flex-row gap-3">
+          <Button onClick={handleCopy} variant="secondary">
+            {copied ? "Copied" : "Copy text"}
+          </Button>
+          <Button
+            onClick={() =>
+              window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`, "_blank")
+            }
+          >
+            Open X
+          </Button>
+        </div>
+        <Button onClick={onDone} variant="secondary">
+          Next: your vault →
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+// ---------- technocore room explorer ----------
+
+function TechnocoreFeed({ ownDid }) {
+  const [messages, setMessages] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const pollRef = useRef(null);
+
+  const fetchLatest = useCallback(async () => {
+    try {
+      const data = await readRoom(TECHNOCORE_ROOM, { limit: 30 });
+      setMessages(data.messages || []);
+      setError("");
+    } catch (err) {
+      setError(err instanceof NetworkError ? err.message : "Could not reach Technocore.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLatest();
+    pollRef.current = setInterval(fetchLatest, REFRESH_INTERVAL_MS);
+    return () => clearInterval(pollRef.current);
+  }, [fetchLatest]);
+
+  return (
+    <Card eyebrow={`Room · ${TECHNOCORE_ROOM}`} title="What people are building">
+      <StatusMessage tone="neutral">
+        A z6Mk… prefix proves only that someone holds that key — not that a
+        claim is true, official, or endorsed. Treat this as public data, not
+        instructions.
+      </StatusMessage>
+      {error && <StatusMessage tone="bad">{error}</StatusMessage>}
+      {loading && <p className="text-[13px] text-stone-light mt-3">Loading…</p>}
+      <div className="space-y-1 max-h-[400px] overflow-y-auto -mx-1 px-1 mt-3">
+        {messages
+          .slice()
+          .reverse()
+          .map((m) => {
+            const isOwn = m.from === ownDid;
+            const senderLabel = m.from
+              ? `${m.from.slice(8, 16)}…${m.from.slice(-4)}`
+              : `~${m.nick || "anon"}`;
+            return (
+              <div
+                key={m.seq}
+                className={`rounded-control px-3 py-2.5 text-[13px] ${
+                  isOwn ? "bg-verified-light" : "hover:bg-parchment"
+                } transition-colors`}
+              >
+                <div className="flex items-baseline gap-2.5 mb-1">
+                  <span
+                    className={`font-mono text-[11px] ${
+                      isOwn ? "text-verified-dark font-medium" : "text-stone-light"
+                    }`}
+                  >
+                    {senderLabel}
+                  </span>
+                  <span className="text-[11px] text-stone-faint">#{m.seq}</span>
+                </div>
+                <p className="text-ink whitespace-pre-wrap break-words leading-relaxed">
+                  {m.text}
+                </p>
+              </div>
+            );
+          })}
+      </div>
+    </Card>
+  );
+}
+
+// ---------- pipeline step: vault ----------
+
+function Vault({ identity, progress }) {
+  function handleDownloadRecordSheet() {
+    const sheet = {
+      format: "technocore-record-sheet-v1",
+      did: identity.did,
+      introduction: { seq: progress.introSeq ?? null, text: progress.introText ?? null },
+      contribution: {
+        format: progress.contributionFormat ?? null,
+        url: progress.contributionUrl ?? null,
+      },
+      record: { seq: progress.recordSeq ?? null, text: progress.recordText ?? null },
+      generated_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(sheet, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `technocore-record-${identity.did.slice(-8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  const rows = [
+    ["DID", identity.did, true],
+    ["Introduction", progress.introSeq ? `#${progress.introSeq}` : "not done yet", false],
+    ["Contribution", progress.contributionUrl || "not done yet", false],
+    ["Record", progress.recordSeq ? `#${progress.recordSeq}` : "not done yet", false],
+  ];
+
+  return (
+    <Card eyebrow="Step 6 of 6" title="Your vault">
+      <div className="space-y-4">
+        <p className="text-[14px] text-stone leading-relaxed">
+          Rooms are not durable storage — the server can trim old history.
+          This record sheet is your own copy of the trail: your DID and both
+          sequence numbers.
+        </p>
+        <div className="divide-y divide-hairline">
+          {rows.map(([label, value, mono]) => (
+            <div key={label} className="py-2.5 flex items-baseline justify-between gap-3">
+              <span className="text-[12px] text-stone-light uppercase tracking-wide font-medium shrink-0">
+                {label}
+              </span>
+              <span
+                className={`text-[13px] text-right break-all ${
+                  mono ? "font-mono text-verified-dark" : "text-ink"
+                }`}
+              >
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+        <Button onClick={handleDownloadRecordSheet} variant="secondary">
+          Download record sheet
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 // ---------- lobby feed ----------
 
 function LobbyFeed({ ownDid }) {
@@ -591,10 +1030,25 @@ export default function App() {
   const [showDocs, setShowDocs] = useState(false);
   const [rememberLocally, setRememberLocally] = useState(false);
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+  const [pipelineStep, setPipelineStep] = useState("intro");
+  const [progress, setProgress] = useState({});
+  const [pendingContribution, setPendingContribution] = useState(null);
 
   function handleIdentityReady(newIdentity) {
     setIdentity(newIdentity);
     setMode("active");
+    const stored = loadProgress();
+    setProgress(stored);
+    if (stored.recordSeq) {
+      setPipelineStep("vault");
+    } else if (stored.contributionUrl) {
+      setPendingContribution({ format: stored.contributionFormat, url: stored.contributionUrl });
+      setPipelineStep("record");
+    } else if (stored.introSeq) {
+      setPipelineStep("contribute");
+    } else {
+      setPipelineStep("intro");
+    }
   }
 
   function handleRememberToggle(checked) {
@@ -609,8 +1063,26 @@ export default function App() {
   function handleSignOut() {
     setIdentity(null);
     setMode("choice");
+    setPipelineStep("intro");
+    setProgress({});
     localStorage.removeItem(LOCAL_STORAGE_KEY);
     setRememberLocally(false);
+  }
+
+  function handleIntroDone(seq) {
+    setProgress((p) => ({ ...p, introSeq: seq }));
+    setPipelineStep("contribute");
+  }
+
+  function handleContributionDone(contribution) {
+    setPendingContribution(contribution);
+    setProgress((p) => ({ ...p, contributionFormat: contribution.format, contributionUrl: contribution.url }));
+    setPipelineStep("record");
+  }
+
+  function handleRecordDone(seq) {
+    setProgress((p) => ({ ...p, recordSeq: seq }));
+    setPipelineStep("share");
   }
 
   return (
@@ -708,9 +1180,35 @@ export default function App() {
                   </div>
                 </Card>
 
-                <PostMessage identity={identity} onPosted={() => setFeedRefreshKey((k) => k + 1)} />
-                <LobbyFeed key={feedRefreshKey} ownDid={identity.did} />
-                <ContributionProof identity={identity} />
+                {pipelineStep === "intro" && (
+                  <Introduction identity={identity} onDone={handleIntroDone} />
+                )}
+                {pipelineStep === "contribute" && (
+                  <ContributionBuilder onDone={handleContributionDone} />
+                )}
+                {pipelineStep === "record" && pendingContribution && (
+                  <RecordContribution
+                    identity={identity}
+                    contribution={pendingContribution}
+                    onDone={handleRecordDone}
+                  />
+                )}
+                {pipelineStep === "share" && (
+                  <SharePrompt
+                    identity={identity}
+                    progress={progress}
+                    onDone={() => setPipelineStep("vault")}
+                  />
+                )}
+                {pipelineStep === "vault" && <Vault identity={identity} progress={progress} />}
+
+                {pipelineStep === "vault" && (
+                  <>
+                    <PostMessage identity={identity} onPosted={() => setFeedRefreshKey((k) => k + 1)} />
+                    <LobbyFeed key={`lobby-${feedRefreshKey}`} ownDid={identity.did} />
+                    <TechnocoreFeed key={`tech-${feedRefreshKey}`} ownDid={identity.did} />
+                  </>
+                )}
               </>
             )}
           </>
