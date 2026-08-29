@@ -329,9 +329,18 @@ function RestoreIdentity({ onIdentityReady, onCancel }) {
             <TextArea
               value={pastedText}
               onChange={handlePasteChange}
-              placeholder='{"format":"technocore-web-identity-v1", ...}'
+              placeholder="Paste the full contents of your backup file here…"
               className="font-mono text-[12px]"
             />
+            {pastedText.trim() && (
+              <span
+                className={`block text-[12px] mt-1.5 ${
+                  vaultObject ? "text-verified-dark" : "text-seal-dark"
+                }`}
+              >
+                {vaultObject ? "✓ Recognized as a valid backup file" : "Not recognized yet — check for missing text"}
+              </span>
+            )}
           </Field>
         )}
 
