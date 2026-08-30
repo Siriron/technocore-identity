@@ -64,7 +64,13 @@ async function checkIfPostLanded(room, did, text) {
   const data = await readRoom(room, { limit: 50 });
   const messages = data.messages || [];
   const match = messages.find((m) => m.from === did && m.text === normalized);
-  return match ? match.seq : null;
+  if (match) return { seq: match.seq, sample: null };
+  // No match — return a sample of what the room actually contains so
+  // a real mismatch (wrong field name, different DID casing, a
+  // normalization difference) is visible instead of a bare "not
+  // found" that looks identical whether the post landed or not.
+  const sample = messages.slice(0, 3).map((m) => ({ from: m.from, text: m.text, seq: m.seq }));
+  return { seq: null, sample };
 }
 
 // ---------- identity creation flow ----------
@@ -512,12 +518,14 @@ function Introduction({ identity, onDone }) {
     setChecking(true);
     setError("");
     try {
-      const seq = await checkIfPostLanded(LOBBY_ROOM, identity.did, lastAttemptedText);
-      if (seq) {
-        setPosted({ seq });
-        saveProgress({ introSeq: seq, introText: lastAttemptedText });
+      const result = await checkIfPostLanded(LOBBY_ROOM, identity.did, lastAttemptedText);
+      if (result.seq) {
+        setPosted({ seq: result.seq });
+        saveProgress({ introSeq: result.seq, introText: lastAttemptedText });
       } else {
-        setError("Not found in the last 50 messages — it likely didn't post. Try again.");
+        setError(
+          `Not found in the last 50 messages. What's actually there: ${JSON.stringify(result.sample)}`
+        );
       }
     } catch (err) {
       setError(`Could not check: ${err.message}`);
@@ -714,12 +722,14 @@ function RecordContribution({ identity, contribution, onDone }) {
     setChecking(true);
     setError("");
     try {
-      const seq = await checkIfPostLanded(TECHNOCORE_ROOM, identity.did, lastAttemptedText);
-      if (seq) {
-        setPosted({ seq });
-        saveProgress({ recordSeq: seq, recordText: lastAttemptedText });
+      const result = await checkIfPostLanded(TECHNOCORE_ROOM, identity.did, lastAttemptedText);
+      if (result.seq) {
+        setPosted({ seq: result.seq });
+        saveProgress({ recordSeq: result.seq, recordText: lastAttemptedText });
       } else {
-        setError("Not found in the last 50 messages — it likely didn't post. Try again.");
+        setError(
+          `Not found in the last 50 messages. What's actually there: ${JSON.stringify(result.sample)}`
+        );
       }
     } catch (err) {
       setError(`Could not check: ${err.message}`);

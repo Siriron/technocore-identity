@@ -143,18 +143,34 @@ async function postSignedMessage(
   const posted = data.posted;
   if (!posted || typeof posted !== "object") {
     throw new NetworkError(
-      "Technocore accepted the request without returning a posted record"
+      `Technocore returned no posted record. Raw response: ${JSON.stringify(data)}`
     );
   }
-  const matchingRecord =
-    posted.from === did &&
-    posted.text === normalized &&
-    String(posted.nonce) === nonce &&
-    typeof posted.seq === "number" &&
-    posted.seq > 0;
-  if (!matchingRecord) {
+  // A successful write always has a real seq — that's the one field
+  // whose presence and shape actually matters. The other fields
+  // (from/text/nonce) are checked loosely, and any mismatch is
+  // reported with the actual values involved rather than a generic
+  // "doesn't match," since a strict silent check here has already
+  // once hidden which field disagreed and why.
+  const hasRealSeq = typeof posted.seq === "number" && posted.seq > 0;
+  if (!hasRealSeq) {
     throw new NetworkError(
-      "Technocore returned a posted record that does not match this identity"
+      `Technocore's posted record has no valid seq. Raw record: ${JSON.stringify(posted)}`
+    );
+  }
+  const mismatches = [];
+  if (posted.from !== undefined && posted.from !== did) {
+    mismatches.push(`from: expected ${did}, got ${posted.from}`);
+  }
+  if (posted.text !== undefined && posted.text !== normalized) {
+    mismatches.push(`text: expected ${JSON.stringify(normalized)}, got ${JSON.stringify(posted.text)}`);
+  }
+  if (posted.nonce !== undefined && String(posted.nonce) !== nonce) {
+    mismatches.push(`nonce: expected ${nonce}, got ${posted.nonce}`);
+  }
+  if (mismatches.length > 0) {
+    throw new NetworkError(
+      `Technocore accepted the post (#${posted.seq}) but echoed different values back: ${mismatches.join("; ")}`
     );
   }
   return data;
