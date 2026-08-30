@@ -121,7 +121,7 @@ export function StatusMessage({ tone = "neutral", children }) {
   return (
     <p className={`flex items-start gap-2 text-[13px] leading-relaxed ${t.text} animate-fade-in`}>
       <span className={`mt-[6px] h-[6px] w-[6px] rounded-full shrink-0 ${t.dot}`} />
-      <span>{children}</span>
+      <span className="break-words whitespace-pre-wrap">{children}</span>
     </p>
   );
 }
