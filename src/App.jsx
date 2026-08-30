@@ -613,15 +613,36 @@ function ContributionBuilder({ onDone }) {
   const [error, setError] = useState("");
 
   const allChecked = Object.values(checks).every(Boolean);
-  const urlValid = (() => {
-    if (!url.trim()) return false;
+
+  // Accepts a bare domain (flop-technocore.vercel.app) as shorthand for
+  // https://flop-technocore.vercel.app — the obvious intent when someone
+  // pastes or types a domain with no scheme. new URL() throws on a bare
+  // domain with no protocol, so without this, a perfectly valid-looking
+  // link silently failed validation with no visible reason: the button
+  // just stayed disabled, forever, with nothing on screen explaining why.
+  function normalizeUrl(raw) {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    // Detect ANY scheme prefix (ftp://, mailto:, javascript:, etc.), not
+    // just http(s)://. A non-https scheme must be rejected outright, not
+    // have "https://" prepended in front of it — that would silently
+    // produce a mangled, still-technically-parseable URL instead of
+    // correctly refusing it (caught by testing this against ftp://,
+    // not just the happy path — the initial version accepted
+    // "ftp://example.com" as if it were valid).
+    const hasAnyScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed);
+    const candidate = hasAnyScheme ? trimmed : `https://${trimmed}`;
     try {
-      const parsed = new URL(url.trim());
-      return parsed.protocol === "https:";
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== "https:") return null;
+      return parsed.href;
     } catch {
-      return false;
+      return null;
     }
-  })();
+  }
+
+  const normalizedUrl = normalizeUrl(url);
+  const urlValid = normalizedUrl !== null;
   const canContinue = format && urlValid && allChecked;
 
   function toggle(key) {
@@ -630,12 +651,16 @@ function ContributionBuilder({ onDone }) {
 
   function handleContinue() {
     if (!canContinue) {
-      setError("Pick a format, add an https:// link, and confirm every item below.");
+      const missing = [];
+      if (!format) missing.push("a format");
+      if (!urlValid) missing.push("a valid link");
+      if (!allChecked) missing.push("every checkbox confirmed");
+      setError(`Still needed: ${missing.join(", ")}.`);
       return;
     }
     setError("");
-    saveProgress({ contributionFormat: format, contributionUrl: url.trim() });
-    onDone({ format, url: url.trim() });
+    saveProgress({ contributionFormat: format, contributionUrl: normalizedUrl });
+    onDone({ format, url: normalizedUrl });
   }
 
   return (
@@ -672,6 +697,17 @@ function ContributionBuilder({ onDone }) {
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://…"
           />
+          {url.trim() && (
+            <span
+              className={`block text-[12px] mt-1.5 ${
+                urlValid ? "text-verified-dark" : "text-seal-dark"
+              }`}
+            >
+              {urlValid
+                ? `✓ Will save as ${normalizedUrl}`
+                : "Not a usable link — check for typos or missing characters"}
+            </span>
+          )}
         </Field>
         <div className="space-y-2.5">
           {[
