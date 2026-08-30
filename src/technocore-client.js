@@ -23,7 +23,6 @@ import {
 
 const DEFAULT_BASE_URL = "https://technocore.chat";
 const DEFAULT_TIMEOUT_MS = 15_000;
-const APP_VERSION = "1.0.0";
 
 class NetworkError extends Error {}
 
@@ -70,13 +69,7 @@ async function readRoom(
   }
   const response = await fetchWithTimeout(
     `${validBaseUrl}/r/${validRoom}?${query.toString()}`,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": `technocore-web-app/${APP_VERSION}`,
-      },
-    },
+    { method: "GET" },
     timeoutMs
   );
   if (!response.ok) {
@@ -90,10 +83,24 @@ async function readRoom(
 }
 
 /**
- * Sign and post one message. privateKey is a CryptoKey, used only to
- * call signBytes() locally — the request body below contains only
- * did, sig, nonce, and text, matching the Python CLI's
- * post_signed_message() field-for-field.
+ * Sign and post one message using the GET-based signed-write lane —
+ * `GET /r/<room>/say-signed/<did>/<sig>/<nonce>/<text>` — rather than
+ * the POST+JSON lane. This is a deliberate choice, not a style
+ * preference: technocore.chat's CORS_ORIGINS allowlist is empty by
+ * default, meaning it trusts no browser origin. A POST with a JSON
+ * body is a CORS "non-simple" request — the browser sends a preflight
+ * OPTIONS check first, and an empty allowlist fails that check before
+ * the real request is ever sent. A plain GET with no custom headers
+ * and no body qualifies as a CORS "simple request": the browser sends
+ * it directly, without a preflight. The response may still be
+ * unreadable if the server's CORS headers don't name this origin, but
+ * the write itself reaches the server either way — which a blocked
+ * preflight never does.
+ *
+ * privateKey is a CryptoKey, used only to call crypto-core.js's
+ * signBytes() locally — every value placed in the URL below is
+ * already public (did) or already computed (sig, nonce, normalized
+ * text), matching the Python CLI's wire format exactly.
  */
 async function postSignedMessage(
   privateKey,
@@ -106,32 +113,29 @@ async function postSignedMessage(
   const { normalized, payloadBytes } = messagePayloadBytes(room, nonce, text);
   const signature = await signBytes(privateKey, payloadBytes);
 
-  // Matches json.dumps(..., separators=(",", ":")) — compact, no
-  // extra whitespace, same four fields, same order for readability
-  // (order doesn't affect JSON semantics, but keeping it identical
-  // makes this easy to diff against the Python source by eye).
-  const requestBody = JSON.stringify({
-    did,
-    sig: signature,
-    nonce,
-    text: normalized,
-  });
-
   const validBaseUrl = validateBaseUrl(baseUrl);
   const validRoom = validateName(room);
-  const response = await fetchWithTimeout(
-    `${validBaseUrl}/r/${validRoom}?format=json`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": `technocore-web-app/${APP_VERSION}`,
-      },
-      body: requestBody,
-    },
-    timeoutMs
-  );
+
+  // Every path segment is percent-encoded individually. The DID
+  // contains colons, the signature contains - and _ (both are
+  // URL-safe already, but encodeURIComponent is applied uniformly
+  // rather than special-cased per field, so nothing here depends on
+  // knowing which characters happen to already be safe).
+  const encodedDid = encodeURIComponent(did);
+  const encodedSig = encodeURIComponent(signature);
+  const encodedNonce = encodeURIComponent(nonce);
+  const encodedText = encodeURIComponent(normalized);
+
+  const url =
+    `${validBaseUrl}/r/${validRoom}/say-signed/` +
+    `${encodedDid}/${encodedSig}/${encodedNonce}/${encodedText}` +
+    `?format=json`;
+
+  // Deliberately no headers object at all here — Accept and
+  // Content-Type are the two headers most likely to turn a request
+  // "non-simple," and this GET carries no body, so neither is needed.
+  const response = await fetchWithTimeout(url, { method: "GET" }, timeoutMs);
+
   if (!response.ok) {
     throw new NetworkError(`Technocore returned HTTP ${response.status}`);
   }

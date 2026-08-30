@@ -6,6 +6,7 @@ import {
   importPkcs8PrivateKey,
   didFromPublicKeyBytes,
   createContributionProof,
+  normalizeMessage,
 } from "./crypto-core.js";
 import { encryptIdentity, decryptIdentity, VaultError } from "./identity-vault.js";
 import { readRoom, postSignedMessage, NetworkError } from "./technocore-client.js";
@@ -46,6 +47,24 @@ function saveProgress(partial) {
   } catch {
     return { ...loadProgress(), ...partial };
   }
+}
+
+/**
+ * A post can fail on the client side (a blocked CORS response, a
+ * dropped connection after the request already reached the server)
+ * even though the write itself landed — the GET-based signed-write
+ * lane reaches the server as a "simple" CORS request regardless of
+ * whether the browser will be allowed to read the reply. This looks
+ * for a message from `did` in `room` matching `text` exactly, so a
+ * failed post can be confirmed or ruled out with certainty rather
+ * than left as a guess.
+ */
+async function checkIfPostLanded(room, did, text) {
+  const normalized = normalizeMessage(text);
+  const data = await readRoom(room, { limit: 50 });
+  const messages = data.messages || [];
+  const match = messages.find((m) => m.from === did && m.text === normalized);
+  return match ? match.seq : null;
 }
 
 // ---------- identity creation flow ----------
@@ -406,6 +425,63 @@ function RestoreIdentity({ onIdentityReady, onCancel }) {
   );
 }
 
+// ---------- unlock a remembered identity (no file needed) ----------
+
+function UnlockRemembered({ vaultObject, onIdentityReady, onUseDifferentIdentity }) {
+  const [passphrase, setPassphrase] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleUnlock() {
+    setError("");
+    setLoading(true);
+    try {
+      const pkcs8Bytes = await decryptIdentity(vaultObject, passphrase);
+      const privateKey = await importPkcs8PrivateKey(pkcs8Bytes);
+      onIdentityReady({ did: vaultObject.did, privateKey, vaultObject });
+    } catch (err) {
+      setError(err instanceof VaultError ? err.message : `Could not unlock identity: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card eyebrow="Welcome back" title="Unlock your identity">
+      <div className="space-y-5">
+        <div className="bg-parchment rounded-control px-4 py-3">
+          <span className="block text-[11px] uppercase tracking-wide text-stone-light font-medium">
+            Remembered on this device
+          </span>
+          <span className="block text-[12px] font-mono text-verified-dark break-all">
+            {vaultObject.did}
+          </span>
+        </div>
+        <Field label="Passphrase">
+          <TextInput
+            type="password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            autoComplete="current-password"
+            autoFocus
+          />
+        </Field>
+        {error && <StatusMessage tone="bad">{error}</StatusMessage>}
+        <Button onClick={handleUnlock} disabled={!passphrase || loading}>
+          {loading ? "Unlocking…" : "Unlock"}
+        </Button>
+        <button
+          type="button"
+          onClick={onUseDifferentIdentity}
+          className="w-full text-center text-[13px] text-stone underline underline-offset-2 py-1"
+        >
+          Use a different identity instead
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 // ---------- pipeline step: introduction ----------
 
 function Introduction({ identity, onDone }) {
@@ -413,11 +489,14 @@ function Introduction({ identity, onDone }) {
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState("");
   const [posted, setPosted] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [lastAttemptedText, setLastAttemptedText] = useState("");
 
   async function handlePost() {
     setError("");
     if (!text.trim()) return;
     setPosting(true);
+    setLastAttemptedText(text);
     try {
       const result = await postSignedMessage(identity.privateKey, identity.did, LOBBY_ROOM, text);
       setPosted(result.posted);
@@ -426,6 +505,24 @@ function Introduction({ identity, onDone }) {
       setError(err instanceof NetworkError ? err.message : `Could not post: ${err.message}`);
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function handleCheckAnyway() {
+    setChecking(true);
+    setError("");
+    try {
+      const seq = await checkIfPostLanded(LOBBY_ROOM, identity.did, lastAttemptedText);
+      if (seq) {
+        setPosted({ seq });
+        saveProgress({ introSeq: seq, introText: lastAttemptedText });
+      } else {
+        setError("Not found in the last 50 messages — it likely didn't post. Try again.");
+      }
+    } catch (err) {
+      setError(`Could not check: ${err.message}`);
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -458,9 +555,21 @@ function Introduction({ identity, onDone }) {
             <Button onClick={() => onDone(posted.seq)}>Next: make something →</Button>
           </>
         ) : (
-          <Button onClick={handlePost} disabled={posting || !text.trim()} variant="seal">
-            {posting ? "Signing & posting…" : "Sign & publish to lobby"}
-          </Button>
+          <>
+            <Button onClick={handlePost} disabled={posting || !text.trim()} variant="seal">
+              {posting ? "Signing & posting…" : "Sign & publish to lobby"}
+            </Button>
+            {error && lastAttemptedText && (
+              <button
+                type="button"
+                onClick={handleCheckAnyway}
+                disabled={checking}
+                className="w-full text-center text-[13px] text-stone underline underline-offset-2 py-1"
+              >
+                {checking ? "Checking the room…" : "It may have posted anyway — check the room"}
+              </button>
+            )}
+          </>
         )}
       </div>
     </Card>
@@ -577,11 +686,14 @@ function RecordContribution({ identity, contribution, onDone }) {
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState("");
   const [posted, setPosted] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [lastAttemptedText, setLastAttemptedText] = useState("");
 
   async function handlePublish() {
     setError("");
     if (!description.trim()) return;
     setPosting(true);
+    setLastAttemptedText(description);
     try {
       const result = await postSignedMessage(
         identity.privateKey,
@@ -595,6 +707,24 @@ function RecordContribution({ identity, contribution, onDone }) {
       setError(err instanceof NetworkError ? err.message : `Could not post: ${err.message}`);
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function handleCheckAnyway() {
+    setChecking(true);
+    setError("");
+    try {
+      const seq = await checkIfPostLanded(TECHNOCORE_ROOM, identity.did, lastAttemptedText);
+      if (seq) {
+        setPosted({ seq });
+        saveProgress({ recordSeq: seq, recordText: lastAttemptedText });
+      } else {
+        setError("Not found in the last 50 messages — it likely didn't post. Try again.");
+      }
+    } catch (err) {
+      setError(`Could not check: ${err.message}`);
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -623,9 +753,21 @@ function RecordContribution({ identity, contribution, onDone }) {
             <Button onClick={() => onDone(posted.seq)}>Next: share it →</Button>
           </>
         ) : (
-          <Button onClick={handlePublish} disabled={posting || !description.trim()} variant="seal">
-            {posting ? "Signing & publishing…" : `Sign & publish to ${TECHNOCORE_ROOM}`}
-          </Button>
+          <>
+            <Button onClick={handlePublish} disabled={posting || !description.trim()} variant="seal">
+              {posting ? "Signing & publishing…" : `Sign & publish to ${TECHNOCORE_ROOM}`}
+            </Button>
+            {error && lastAttemptedText && (
+              <button
+                type="button"
+                onClick={handleCheckAnyway}
+                disabled={checking}
+                className="w-full text-center text-[13px] text-stone underline underline-offset-2 py-1"
+              >
+                {checking ? "Checking the room…" : "It may have posted anyway — check the room"}
+              </button>
+            )}
+          </>
         )}
       </div>
     </Card>
@@ -1033,6 +1175,22 @@ export default function App() {
   const [pipelineStep, setPipelineStep] = useState("intro");
   const [progress, setProgress] = useState({});
   const [pendingContribution, setPendingContribution] = useState(null);
+  const [rememberedVault, setRememberedVault] = useState(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (raw) {
+        const vaultObject = JSON.parse(raw);
+        setRememberedVault(vaultObject);
+        setMode("unlock-remembered");
+      }
+    } catch {
+      // Corrupted or unreadable localStorage entry — fall through to
+      // the normal choice screen rather than block the app on it.
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
+  }, []);
 
   function handleIdentityReady(newIdentity) {
     setIdentity(newIdentity);
@@ -1048,6 +1206,9 @@ export default function App() {
       setPipelineStep("contribute");
     } else {
       setPipelineStep("intro");
+    }
+    if (localStorage.getItem(LOCAL_STORAGE_KEY)) {
+      setRememberLocally(true);
     }
   }
 
@@ -1118,6 +1279,18 @@ export default function App() {
           <DocsView onClose={() => setShowDocs(false)} />
         ) : (
           <>
+            {mode === "unlock-remembered" && rememberedVault && (
+              <UnlockRemembered
+                vaultObject={rememberedVault}
+                onIdentityReady={handleIdentityReady}
+                onUseDifferentIdentity={() => {
+                  localStorage.removeItem(LOCAL_STORAGE_KEY);
+                  setRememberedVault(null);
+                  setMode("choice");
+                }}
+              />
+            )}
+
             {mode === "choice" && (
               <>
                 <Card>
