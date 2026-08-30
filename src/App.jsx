@@ -58,18 +58,33 @@ function saveProgress(partial) {
  * for a message from `did` in `room` matching `text` exactly, so a
  * failed post can be confirmed or ruled out with certainty rather
  * than left as a guess.
+ *
+ * Searches in two passes: first the most recent messages (fast, and
+ * enough if nothing else has posted since), then — only if that
+ * misses — a second, much larger page. A busy shared room can post
+ * hundreds of other messages in the time it takes to read an error
+ * and tap this button, easily pushing a real post outside a small
+ * fixed window; the two-pass approach keeps the common case fast
+ * without letting an active room hide a real success.
  */
 async function checkIfPostLanded(room, did, text) {
   const normalized = normalizeMessage(text);
-  const data = await readRoom(room, { limit: 50 });
-  const messages = data.messages || [];
-  const match = messages.find((m) => m.from === did && m.text === normalized);
-  if (match) return { seq: match.seq, sample: null };
-  // No match — return a sample of what the room actually contains so
-  // a real mismatch (wrong field name, different DID casing, a
-  // normalization difference) is visible instead of a bare "not
+
+  const recent = await readRoom(room, { limit: 50 });
+  const recentMessages = recent.messages || [];
+  const recentMatch = recentMessages.find((m) => m.from === did && m.text === normalized);
+  if (recentMatch) return { seq: recentMatch.seq, sample: null };
+
+  const wider = await readRoom(room, { limit: 500 });
+  const widerMessages = wider.messages || [];
+  const widerMatch = widerMessages.find((m) => m.from === did && m.text === normalized);
+  if (widerMatch) return { seq: widerMatch.seq, sample: null };
+
+  // No match in either pass — return a sample of what the room
+  // actually contains so a real mismatch (a normalization difference,
+  // an unexpected field shape) is visible instead of a bare "not
   // found" that looks identical whether the post landed or not.
-  const sample = messages.slice(0, 3).map((m) => ({ from: m.from, text: m.text, seq: m.seq }));
+  const sample = recentMessages.slice(0, 3).map((m) => ({ from: m.from, text: m.text, seq: m.seq }));
   return { seq: null, sample };
 }
 

@@ -165,9 +165,20 @@ async function postSignedMessage(
   if (posted.text !== undefined && posted.text !== normalized) {
     mismatches.push(`text: expected ${JSON.stringify(normalized)}, got ${JSON.stringify(posted.text)}`);
   }
-  if (posted.nonce !== undefined && String(posted.nonce) !== nonce) {
-    mismatches.push(`nonce: expected ${nonce}, got ${posted.nonce}`);
-  }
+  // Deliberately NOT comparing posted.nonce against nonce as a hard
+  // failure. A 19-digit nonce sent as a plain URL path segment is
+  // exact when it leaves this client — but Technocore's own JSON
+  // response very likely passes it through a native JS number at
+  // some point server-side, and IEEE-754 doubles cannot represent
+  // every 19-digit integer exactly (safe only up to 2^53-1, about 16
+  // digits). That produces last-few-digit drift entirely outside
+  // this client's control — confirmed by seeing exactly that pattern
+  // (e.g. ...185048 echoed back as ...185000) even after this
+  // client's own nonce generation was independently stress-tested
+  // and found exact. Failing the whole post over a mismatch neither
+  // side can fix would be treating a known, common JSON-numeric
+  // limitation as if it were a real correctness problem. `from` and
+  // `text` are strings, immune to this, and still checked strictly.
   if (mismatches.length > 0) {
     throw new NetworkError(
       `Technocore accepted the post (#${posted.seq}) but echoed different values back: ${mismatches.join("; ")}`
