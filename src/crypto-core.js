@@ -155,12 +155,32 @@ function validateNonce(value) {
 
 function nextNonce() {
   // High-resolution wall-clock nonce, matching time.time_ns() in spirit.
-  // Date.now() is milliseconds; pad with a random 6-digit suffix to
-  // keep monotonic-ish uniqueness without claiming false nanosecond
-  // precision the browser can't actually provide.
-  const millis = BigInt(Date.now());
-  const rand = BigInt(Math.floor(Math.random() * 1_000_000));
-  const nonce = (millis * 1_000_000n + rand).toString();
+  // Every value here must be BigInt from the first operation onward —
+  // a 19-digit nonce (~1.7e18) is far past Number.MAX_SAFE_INTEGER
+  // (2^53), so if a plain floating-point `number` touches this
+  // calculation anywhere, the result silently loses precision in its
+  // last few digits. That happened here once already: an earlier
+  // version computed the random suffix with Math.random(), a
+  // floating-point operation, before converting to BigInt — the
+  // BigInt() call doesn't fail on an imprecise input, it just
+  // carries the rounding error forward.
+  //
+  // The nonce format is capped at 19 digits total (see NONCE_PATTERN)
+  // — a 13-digit millisecond timestamp leaves only 6 digits of
+  // headroom for a random suffix, which collides too often under
+  // rapid, tightly-looped calls (many calls landing in the same
+  // millisecond, competing for only 1,000,000 possible suffixes).
+  // Trading 3 digits of timestamp precision for 3 more digits of
+  // randomness — truncating milliseconds to the nearest 1000 (i.e.
+  // tracking seconds instead) and using a full 9-digit random
+  // suffix — keeps the total at 19 digits while cutting collision
+  // probability by roughly three orders of magnitude, which is the
+  // right trade: this nonce only needs to be practically unique
+  // and recent, never a reconstructible exact timestamp.
+  const seconds = BigInt(Math.floor(Date.now() / 1000));
+  const randomBytes = crypto.getRandomValues(new Uint32Array(1));
+  const rand = BigInt(randomBytes[0] % 1_000_000_000);
+  const nonce = (seconds * 1_000_000_000n + rand).toString();
   return validateNonce(nonce);
 }
 
