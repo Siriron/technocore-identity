@@ -1,42 +1,105 @@
-<svg width="1200" height="300" viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="bannerTitle bannerDesc">
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="bannerTitle bannerDesc">
   <title id="bannerTitle">Technocore Identity</title>
-  <desc id="bannerDesc">Banner reading Technocore Identity, a browser-based signed identity tool, beside a wax-seal key mark.</desc>
+  <desc id="bannerDesc">Dark banner matching the app's UI: a geodesic globe motif on the right, the TC squircle logo and wordmark on the left, above three rounded action buttons reading Sign In, Sign Up, and Enter Hub.</desc>
 
-  <rect width="1200" height="300" fill="#FAF9F6"/>
-  <rect x="0" y="0" width="1200" height="300" fill="none" stroke="#E8E4DB" stroke-width="1"/>
+  <defs>
+    <radialGradient id="bgRadial" cx="72%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#171C28"/>
+      <stop offset="100%" stop-color="#0B0E14"/>
+    </radialGradient>
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6E7EEF"/>
+      <stop offset="55%" stop-color="#8B6FE0"/>
+      <stop offset="100%" stop-color="#FF7A59"/>
+    </linearGradient>
+    <linearGradient id="btnSignin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6E7EEF"/>
+      <stop offset="100%" stop-color="#4C5FE0"/>
+    </linearGradient>
+    <linearGradient id="btnSignup" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1EE8B5"/>
+      <stop offset="100%" stop-color="#0FBE93"/>
+    </linearGradient>
+    <linearGradient id="btnHub" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8B6B"/>
+      <stop offset="100%" stop-color="#FF5C72"/>
+    </linearGradient>
+    <radialGradient id="dotGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EAF0FF" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#EAF0FF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
 
-  <!-- Seal mark, left -->
-  <g transform="translate(150 150)">
-    <circle cx="0" cy="0" r="92" fill="#B8433A"/>
-    <path d="M 0 -92
-             C 32 -92, 60 -78, 78 -54
-             C 94 -32, 96 -20, 90 -10
-             C 96 -2, 96 8, 88 18
-             C 94 30, 88 46, 76 60
-             C 60 80, 36 94, 8 96
-             C 0 97, -6 96, -12 94
-             C -38 92, -60 78, -76 56
-             C -90 38, -94 16, -90 -6
-             C -94 -24, -86 -44, -72 -62
-             C -52 -86, -26 -92, 0 -92 Z"
-          fill="none" stroke="#8F332C" stroke-width="3" opacity="0.4"/>
-    <circle cx="-16" cy="0" r="18" fill="none" stroke="#FAF9F6" stroke-width="7"/>
-    <rect x="-2" y="-3.5" width="44" height="7" fill="#FAF9F6"/>
-    <rect x="26" y="3.5" width="7" height="14" fill="#FAF9F6"/>
-    <rect x="37" y="3.5" width="7" height="10" fill="#FAF9F6"/>
+  <rect width="1200" height="400" fill="url(#bgRadial)"/>
+
+  <!-- Geodesic globe motif, right side -->
+  <g transform="translate(860 200)" opacity="0.92">
+    <circle r="150" fill="none" stroke="#5B6EE8" stroke-width="1" opacity="0.35"/>
+    <g stroke="#5B6EE8" stroke-width="1" opacity="0.5" fill="none">
+      <ellipse rx="150" ry="52"/>
+      <ellipse rx="150" ry="52" transform="rotate(60)"/>
+      <ellipse rx="150" ry="52" transform="rotate(120)"/>
+      <ellipse rx="52" ry="150"/>
+    </g>
+    <!-- glowing point cloud scatter -->
+    <g>
+      <circle cx="-70" cy="-95" r="10" fill="url(#dotGlow)"/>
+      <circle cx="30" cy="-120" r="8" fill="url(#dotGlow)"/>
+      <circle cx="110" cy="-60" r="9" fill="url(#dotGlow)"/>
+      <circle cx="130" cy="30" r="7" fill="url(#dotGlow)"/>
+      <circle cx="80" cy="100" r="10" fill="url(#dotGlow)"/>
+      <circle cx="-20" cy="130" r="8" fill="url(#dotGlow)"/>
+      <circle cx="-110" cy="70" r="9" fill="url(#dotGlow)"/>
+      <circle cx="-130" cy="-20" r="7" fill="url(#dotGlow)"/>
+      <circle cx="-40" cy="10" r="11" fill="url(#dotGlow)"/>
+      <circle cx="50" cy="-20" r="7" fill="url(#dotGlow)"/>
+    </g>
+    <!-- multicolor FLOOP-style accent sparks -->
+    <circle cx="-95" cy="-140" r="5" fill="#17D9A8" filter="url(#softGlow)"/>
+    <circle cx="60" cy="-165" r="4" fill="#FF7A59" filter="url(#softGlow)"/>
+    <circle cx="150" cy="-90" r="4.5" fill="#8B7CF6" filter="url(#softGlow)"/>
+    <circle cx="-150" cy="40" r="4" fill="#3ED9C8" filter="url(#softGlow)"/>
+    <circle cx="120" cy="130" r="4.5" fill="#FF9166" filter="url(#softGlow)"/>
+  </g>
+
+  <!-- TC squircle logo mark -->
+  <g transform="translate(64 60)">
+    <path d="M28 0 C 50 0, 56 6, 56 28 C 56 50, 50 56, 28 56 C 6 56, 0 50, 0 28 C 0 6, 6 0, 28 0 Z" fill="url(#logoGrad)"/>
+    <text x="28" y="38" font-family="'Sora','Segoe UI',system-ui,sans-serif" font-weight="800" font-size="26" fill="#FFFFFF" text-anchor="middle">TC</text>
   </g>
 
   <!-- Wordmark -->
-  <text x="300" y="140" font-family="Georgia, 'Bitstream Charter', 'Times New Roman', serif" font-size="56" font-weight="600" fill="#1C1E21">Technocore</text>
-  <text x="300" y="192" font-family="Georgia, 'Bitstream Charter', 'Times New Roman', serif" font-size="56" font-weight="600" fill="#2D5F4F">Identity</text>
+  <text x="136" y="100" font-family="'Sora','Segoe UI',system-ui,sans-serif" font-weight="800" font-size="42" letter-spacing="-1" fill="#F3F5FA">TECHNOCORE<tspan fill="#6E7EEF">·IDENTITY</tspan></text>
+  <text x="66" y="150" font-family="'Space Mono',monospace" font-size="15" fill="#9AA3B8">Cryptographic DID identity &amp; live agent coordination terminal</text>
 
-  <!-- Tagline -->
-  <text x="302" y="228" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" fill="#6B6459">Sign in with a key only you hold. Nothing else leaves your device.</text>
+  <!-- Squircle action buttons, matching the real landing page -->
+  <g font-family="'Sora','Segoe UI',system-ui,sans-serif" font-weight="700" font-size="16">
+    <rect x="66" y="190" width="150" height="52" rx="26" fill="url(#btnSignin)"/>
+    <text x="141" y="222" fill="#FFFFFF" text-anchor="middle">🔑 Sign In</text>
 
-  <!-- Divider mark: three small ticks referencing the signed / verified motif -->
-  <g transform="translate(302 252)" fill="#2D5F4F">
-    <circle cx="0" cy="0" r="3"/>
-    <circle cx="14" cy="0" r="3"/>
-    <circle cx="28" cy="0" r="3"/>
+    <rect x="228" y="190" width="150" height="52" rx="26" fill="url(#btnSignup)"/>
+    <text x="303" y="222" fill="#06231C" text-anchor="middle">✨ Sign Up</text>
+
+    <rect x="390" y="190" width="160" height="52" rx="26" fill="url(#btnHub)"/>
+    <text x="470" y="222" fill="#2B0A0A" text-anchor="middle">🪐 Enter Hub</text>
+  </g>
+
+  <!-- footer status strip -->
+  <g font-family="'Space Mono',monospace" font-size="13" fill="#666F85">
+    <circle cx="70" cy="330" r="4" fill="#17D9A8"/>
+    <text x="82" y="335">did:key Ed25519</text>
+    <circle cx="230" cy="330" r="4" fill="#17D9A8"/>
+    <text x="242" y="335">live rooms</text>
+    <circle cx="360" cy="330" r="4" fill="#17D9A8"/>
+    <text x="372" y="335">signed messages</text>
+    <circle cx="530" cy="330" r="4" fill="#17D9A8"/>
+    <text x="542" y="335">agent orchestrator</text>
   </g>
 </svg>
