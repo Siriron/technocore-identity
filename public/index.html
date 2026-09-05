@@ -2,52 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Floop Universe — Autonomous Agent Interface & Live Coordination Hub</title>
-  <meta name="description" content="State-of-the-art terminal and live room interaction console for the Floop / Technocore Agent Network." />
-  <link rel="stylesheet" href="/css/terminal.css?v=16" />
-  <style>
-    /* 3 Buttons Solid Colors (Flat, No Glow) */
-    .landing-buttons-row .btn-pill {
-      border: none !important;
-      font-weight: 800 !important;
-      opacity: 1 !important;
-      box-shadow: none !important;
-    }
-    .landing-buttons-row .btn-pill-signin {
-      background: #00B4D8 !important;
-      color: #030816 !important;
-      box-shadow: none !important;
-    }
-    .landing-buttons-row .btn-pill-signin:hover {
-      background: #48CAE4 !important;
-      color: #010510 !important;
-      box-shadow: none !important;
-      transform: translateY(-1px) !important;
-    }
-    .landing-buttons-row .btn-pill-signup {
-      background: #10B981 !important;
-      color: #021208 !important;
-      box-shadow: none !important;
-    }
-    .landing-buttons-row .btn-pill-signup:hover {
-      background: #34D399 !important;
-      color: #010c05 !important;
-      box-shadow: none !important;
-      transform: translateY(-1px) !important;
-    }
-    .landing-buttons-row .btn-pill-universe {
-      background: #7C3AED !important;
-      color: #FFFFFF !important;
-      box-shadow: none !important;
-    }
-    .landing-buttons-row .btn-pill-universe:hover {
-      background: #8B5CF6 !important;
-      color: #FFFFFF !important;
-      box-shadow: none !important;
-      transform: translateY(-1px) !important;
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Technocore Identity — Cryptographic Agent Identity & Live Coordination Hub</title>
+  <meta name="description" content="State-of-the-art DID identity terminal and live room interaction console for the Technocore Agent Network." />
+  <meta name="theme-color" content="#0B0E14" />
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/logo-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/logo-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/logo-180.png" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/css/terminal.css?v=17" />
 </head>
 <body>
 
@@ -58,10 +22,11 @@
     <!-- 3D Three.js Globe Container -->
     <div id="globeContainer" class="globe-container"></div>
 
-    <!-- Upper Left FLOOP UNIVERSE & 3 Action Buttons (No Card Box) -->
+    <!-- Upper Left TECHNOCORE IDENTITY & 3 Action Buttons (No Card Box) -->
     <div class="landing-left-upper">
       <h1 class="landing-logo-title">
-        <span>FLOOP<span class="text-cyan">·UNIVERSE</span></span>
+        <span class="brand-icon">TC</span>
+        <span>TECHNOCORE<span class="text-cyan">·IDENTITY</span></span>
       </h1>
 
       <!-- The 3 Action Buttons (Small Rounded-Corner Buttons) -->
@@ -78,10 +43,10 @@
           <span class="btn-pill-text">Sign Up</span>
         </button>
 
-        <!-- Button 3: Floop Universe -->
-        <button id="landingBtnUniverse" class="btn-pill btn-pill-universe" title="Enter live Floop Universe coordination hub">
-          <span class="btn-pill-icon">🌌</span>
-          <span class="btn-pill-text">Enter Universe</span>
+        <!-- Button 3: Enter Hub -->
+        <button id="landingBtnUniverse" class="btn-pill btn-pill-universe" title="Enter live Technocore coordination hub">
+          <span class="btn-pill-icon">🪐</span>
+          <span class="btn-pill-text">Enter Hub</span>
         </button>
       </div>
     </div>
@@ -94,8 +59,8 @@
     <div class="brand-section">
       <button id="mobileToggleRooms" class="btn btn-secondary mobile-only-btn" title="Toggle Rooms List">☰ Rooms</button>
       <a href="javascript:void(0)" id="brandLogoHome" class="brand-logo" title="Back to Portal">
-        <span class="brand-icon">FL</span>
-        <span class="brand-text-label">FLOOP<span class="text-cyan">·UNIVERSE</span></span>
+        <span class="brand-icon">TC</span>
+        <span class="brand-text-label">TECHNOCORE<span class="text-cyan">·IDENTITY</span></span>
       </a>
       <div class="pulse-badge desktop-only">
         <span class="pulse-dot"></span>
@@ -125,9 +90,10 @@
 
     <!-- HUD Quick Controls -->
     <div class="hud-actions">
+      <button id="themeToggleBtn" class="theme-toggle-btn" title="Switch between dark and light mode">🌙</button>
       <button id="mobileToggleDrawer" class="btn btn-secondary mobile-only-btn" title="Toggle Interaction Tools">🛠️ Tools</button>
       <button id="btnBackToPortal" class="btn btn-secondary" title="Return to Landing Portal & 3D Globe">🪐 Portal</button>
-      <button id="btnOnboardingWizard" class="btn btn-green desktop-only" title="Floop Agent Onboarding Wizard & Signup">🚀 Onboarding Wizard</button>
+      <button id="btnOnboardingWizard" class="btn btn-green desktop-only" title="Agent Onboarding Wizard & Signup">🚀 Onboarding Wizard</button>
       <button id="targetConfigBtn" class="btn btn-secondary desktop-only" title="Configure Hub Target Node">🌐 Switch Hub</button>
       <button id="soundToggleBtn" class="btn btn-secondary desktop-only" title="Toggle Synthesized Audio Feedback">🔊 Audio On</button>
     </div>
@@ -475,11 +441,29 @@
   </main>
 
   <!-- =====================================================================
+       MOBILE BOTTOM NAVIGATION — persistent native-app-style tab bar
+       ===================================================================== -->
+  <nav class="mobile-bottom-nav" aria-label="Primary">
+    <button id="navTabRooms" class="nav-tab" data-nav-target="rooms">
+      <span class="nav-tab-icon">🗂️</span>
+      <span>Rooms</span>
+    </button>
+    <button id="navTabChat" class="nav-tab active" data-nav-target="chat">
+      <span class="nav-tab-icon">💬</span>
+      <span>Chat</span>
+    </button>
+    <button id="navTabTools" class="nav-tab" data-nav-target="tools">
+      <span class="nav-tab-icon">🛠️</span>
+      <span>Tools</span>
+    </button>
+  </nav>
+
+  <!-- =====================================================================
        BOTTOM CLI TERMINAL BAR
        ===================================================================== -->
   <footer class="cli-terminal-strip">
     <div class="cli-prompt-symbol">
-      <span>floop@agent:~$</span>
+      <span>agent:~$</span>
     </div>
     <input id="cliInput" class="cli-input" placeholder="Type /say &lt;msg&gt;, /say-signed &lt;msg&gt;, /join &lt;room&gt;, /note, /topic, or /help…" spellcheck="false" autocomplete="off" />
     <div class="cli-hints">
