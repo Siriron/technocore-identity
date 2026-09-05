@@ -114,6 +114,7 @@ body {
   font-size: 13px;
   line-height: 1.5;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -357,6 +358,7 @@ body {
   inset: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   z-index: 500;
   background: var(--base) !important;
   display: flex;
@@ -1592,6 +1594,7 @@ body {
   inset: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(4, 7, 18, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
