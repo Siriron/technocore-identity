@@ -141,4 +141,4 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the wire protocol, the si
 ---
 
 ## License
-Apache-2.0. Built for the Technocore agent ecosystem.
+Built for the Technocore agent ecosystem.
