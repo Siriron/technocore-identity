@@ -10,35 +10,35 @@ const FLOOP_LIFE = 2.6;
 const FLOOP_DRIFT = 1.05;
 
 export const DEFAULTS = {
-  dot: "#FFFFFF",
-  net: "#26FF00",
+  dot: "#EAF0FF",
+  net: "#5B6EE8",
   density: 20,
   spin: 20,
   spinDir: "right",
   hoverOn: true,
   sizePercent: 100,
   dots: {
-    size: 8,
+    size: 11,
     wobble: 6,
     flicker: 7
   },
   cage: {
     detail: 1,
     spread: 8,
-    glow: 11
+    glow: 13
   },
   shimmer: {
-    color: "#D8CCFF",
+    color: "#00D9A3",
     speed: 9,
     style: "sweep",
     angle: 90,
     width: 7
   },
   waves: {
-    color: "#6FA8FF",
-    color2: "#FF5E8F",
+    color: "#5B6EE8",
+    color2: "#FF6B4A",
     size: 9,
-    glow: 11,
+    glow: 12,
     speed: 7
   },
   hover: {
@@ -48,12 +48,13 @@ export const DEFAULTS = {
   },
   robot: {
     on: true,
-    color: "#FFFFFF",
-    accent: "#26FF00",
+    color: "#EAF0FF",
+    accent: "#5B6EE8",
     scale: 10,
     speed: 9,
     tilt: 32
-  }
+  },
+  floopColors: ["#5B6EE8", "#00D9A3", "#FF6B4A", "#8B7CF6", "#3ED9C8", "#FF9166"]
 };
 
 function clamp(v, lo, hi, fallback) {
@@ -286,15 +287,15 @@ const POINT_FRAGMENT = /* glsl */ `
 
   void main() {
     float d = length(gl_PointCoord - 0.5) * 2.0;
-    float core = 1.0 - smoothstep(0.0, 0.45, d);
-    float halo = exp(-d * d * 2.5);
+    float core = 1.0 - smoothstep(0.0, 0.55, d);
+    float halo = exp(-d * d * 1.7);
 
-    float depth = mix(0.25, 1.0, smoothstep(-0.6, 0.65, vFacing));
-    float grain = 0.7 + 0.3 * vSeed;
+    float depth = mix(0.32, 1.0, smoothstep(-0.6, 0.65, vFacing));
+    float grain = 0.75 + 0.25 * vSeed;
 
-    vec3 col = uDot * grain + vGlow;
-    float a = (core * 0.8 + halo * 0.35) * depth * vFlick
-      * (0.85 + vLit * 0.9 + vNear * 0.8);
+    vec3 col = uDot * grain + vGlow * 1.3;
+    float a = (core * 1.0 + halo * 0.6) * depth * vFlick
+      * (1.0 + vLit * 1.1 + vNear * 0.9);
     if (a < 0.002) discard;
     gl_FragColor = vec4(col * a, a);
   }
@@ -358,10 +359,10 @@ const CAGE_FRAGMENT = /* glsl */ `
     float twinkle = 0.5 + 0.5 * sin(vSeed * 43.0 + uTime * uShimmer * 5.0);
 
     float spark = clamp(run * 1.1 + sweep * 1.2 + twinkle * 0.35, 0.0, 1.0);
-    vec3 col = mix(uNet, uShimmerColor, spark) + vGlow * 0.6;
+    vec3 col = mix(uNet, uShimmerColor, spark) + vGlow * 0.75;
 
     float a = uNetGlow * depth
-      * (0.4 + run * 1.5 + sweep * 1.9 + twinkle * 0.3);
+      * (0.48 + run * 1.6 + sweep * 2.0 + twinkle * 0.35);
     a += vNear * uHoverGlow * depth;
     if (a < 0.002) discard;
     gl_FragColor = vec4(col * a, a);
@@ -435,6 +436,20 @@ function wirePart(geometry, color) {
   return mesh;
 }
 
+function glowCore(radius, color) {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 10, 10),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  return mesh;
+}
+
 function buildRobot(dotColor, netColor) {
   const root = new THREE.Group();
   const legLen = 0.34;
@@ -460,9 +475,30 @@ function buildRobot(dotColor, netColor) {
   chest.position.set(0, hipY + bodyH * 0.64, bodyD / 2 + bodyD * 0.17);
   root.add(chest);
 
-  const head = wirePart(new THREE.BoxGeometry(headS, headS, headS), dotColor);
+  // Glowing reactor core on the chest — reads as an AI power source
+  const core = glowCore(0.035, netColor);
+  core.position.set(0, hipY + bodyH * 0.64, bodyD / 2 + bodyD * 0.3);
+  root.add(core);
+
+  const head = wirePart(new THREE.BoxGeometry(headS, headS * 0.85, headS), dotColor);
   head.position.y = hipY + bodyH + headS / 2;
   root.add(head);
+
+  // Visor band across the head — gives it a face instead of a bare cube
+  const visor = wirePart(
+    new THREE.BoxGeometry(headS * 0.92, headS * 0.28, headS * 0.5),
+    netColor
+  );
+  visor.position.set(0, hipY + bodyH + headS * 0.56, headS * 0.28);
+  root.add(visor);
+
+  // Twin glowing eyes inside the visor
+  const eyeL = glowCore(0.016, netColor);
+  eyeL.position.set(-headS * 0.22, hipY + bodyH + headS * 0.56, headS * 0.5);
+  root.add(eyeL);
+  const eyeR = glowCore(0.016, netColor);
+  eyeR.position.set(headS * 0.22, hipY + bodyH + headS * 0.56, headS * 0.5);
+  root.add(eyeR);
 
   const antenna = wirePart(
     new THREE.CylinderGeometry(8e-3, 8e-3, 0.1, 6),
@@ -470,6 +506,11 @@ function buildRobot(dotColor, netColor) {
   );
   antenna.position.y = hipY + bodyH + headS + 0.05;
   root.add(antenna);
+
+  // Antenna tip glow
+  const antennaTip = glowCore(0.014, netColor);
+  antennaTip.position.y = hipY + bodyH + headS + 0.1;
+  root.add(antennaTip);
 
   const shoulderY = hipY + bodyH * 0.86;
   const pauldronL = wirePart(
@@ -520,6 +561,30 @@ function buildRobot(dotColor, netColor) {
   const armL = limb(shoulderY, -(bodyW / 2 + limbW / 2), armLen, dotColor, limbW * 0.85);
   const armR = limb(shoulderY, bodyW / 2 + limbW / 2, armLen, dotColor, limbW * 0.85);
 
+  // Forearm accent bands — small greebled detail rings partway down each arm
+  const bandL = wirePart(
+    new THREE.CylinderGeometry(limbW * 0.55, limbW * 0.55, limbW * 0.35, 6),
+    netColor
+  );
+  bandL.position.set(0, -armLen * 0.62, 0);
+  armL.add(bandL);
+  const bandR = wirePart(
+    new THREE.CylinderGeometry(limbW * 0.55, limbW * 0.55, limbW * 0.35, 6),
+    netColor
+  );
+  bandR.position.set(0, -armLen * 0.62, 0);
+  armR.add(bandR);
+
+  // Spine ribs on the back of the torso for a more built, engineered silhouette
+  for (let i = 0; i < 3; i++) {
+    const rib = wirePart(
+      new THREE.BoxGeometry(bodyW * 0.7, bodyH * 0.1, bodyD * 0.18),
+      netColor
+    );
+    rib.position.set(0, hipY + bodyH * (0.32 + i * 0.26), -bodyD / 2 - bodyD * 0.06);
+    root.add(rib);
+  }
+
   return {
     root,
     body,
@@ -544,15 +609,30 @@ function makeFloopTexture(fill, stroke) {
   ctx.font = "bold 72px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.lineWidth = 10;
+  // Thin dark outline for legibility only — thin enough that the fill color
+  // (not the outline) is what the eye reads, so each particle's accent color
+  // is clearly distinct rather than washed out by a heavy shared border.
+  ctx.lineWidth = 3;
   ctx.lineJoin = "round";
-  ctx.strokeStyle = `#${stroke.getHexString()}`;
+  ctx.strokeStyle = "rgba(6, 8, 14, 0.55)";
   ctx.strokeText("FLOOP", canvas.width / 2, canvas.height / 2);
   ctx.fillStyle = `#${fill.getHexString()}`;
+  ctx.fillText("FLOOP", canvas.width / 2, canvas.height / 2);
+  // Soft glow rim in the particle's own color, drawn under the crisp fill
+  // pass above by re-filling once more at full opacity on top — keeps the
+  // color, not white, as the dominant thing the eye picks up at a glance.
+  ctx.shadowColor = `#${fill.getHexString()}`;
+  ctx.shadowBlur = 14;
   ctx.fillText("FLOOP", canvas.width / 2, canvas.height / 2);
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
+}
+
+// Builds one FLOOP text texture per accent color, stroked in a soft near-white
+// so each floating particle reads as a distinct, glowing color.
+function makeFloopTextures(colors, strokeColor) {
+  return colors.map((hex) => makeFloopTexture(new THREE.Color(hex), strokeColor));
 }
 
 export class GlobeScene {
@@ -728,22 +808,23 @@ export class GlobeScene {
     this.group.add(this.robot.root);
     this.placeRobot(S, 0);
 
-    this.floopTexture = makeFloopTexture(
-      new THREE.Color(this.cfg.dot || DEFAULTS.dot),
-      new THREE.Color(this.cfg.net || DEFAULTS.net)
+    const floopPalette = this.cfg.floopColors || DEFAULTS.floopColors;
+    this.floopTextures = makeFloopTextures(
+      floopPalette,
+      new THREE.Color(this.cfg.dot || DEFAULTS.dot)
     );
-    const floopMat = new THREE.SpriteMaterial({
-      map: this.floopTexture,
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-      blending: THREE.AdditiveBlending,
-      opacity: 0,
-    });
 
     const FLOOP_COUNT = 6;
     for (let i = 0; i < FLOOP_COUNT; i++) {
-      const sprite = new THREE.Sprite(floopMat.clone());
+      const tex = this.floopTextures[i % this.floopTextures.length];
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0,
+      }));
       sprite.renderOrder = 10;
       this.floopGroup.add(sprite);
       this.floopSprites.push({
@@ -977,13 +1058,14 @@ export class GlobeScene {
     this.robot.pauldronL.material.color.copy(netCol);
     this.robot.pauldronR.material.color.copy(netCol);
 
-    if (this.cfg.dot !== prev.dot || this.cfg.net !== prev.net) {
-      this.floopTexture.dispose();
-      this.floopTexture = makeFloopTexture(dotCol, netCol);
-      for (const state of this.floopSprites) {
-        state.sprite.material.map = this.floopTexture;
+    if (this.cfg.dot !== prev.dot || this.cfg.net !== prev.net || this.cfg.floopColors !== prev.floopColors) {
+      for (const tex of this.floopTextures) tex.dispose();
+      const floopPalette = this.cfg.floopColors || DEFAULTS.floopColors;
+      this.floopTextures = makeFloopTextures(floopPalette, dotCol);
+      this.floopSprites.forEach((state, i) => {
+        state.sprite.material.map = this.floopTextures[i % this.floopTextures.length];
         state.sprite.material.needsUpdate = true;
-      }
+      });
     }
 
     this.updateCamera();
@@ -1093,7 +1175,9 @@ export class GlobeScene {
     this.pointMat.dispose();
     this.cageMat.dispose();
     this.panelMat.dispose();
-    this.floopTexture.dispose();
+    for (const tex of this.floopTextures) {
+      tex.dispose();
+    }
     for (const state of this.floopSprites) {
       state.sprite.material.dispose();
     }

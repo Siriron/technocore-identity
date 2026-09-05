@@ -265,6 +265,73 @@ class FloopTerminalApp {
       this.closeMobileDrawers();
     });
 
+    // Mobile Bottom Nav — Rooms / Chat / Tools tabs drive the same
+    // sidebar/drawer open state as the existing header toggle buttons.
+    const navTabRooms = document.getElementById('navTabRooms');
+    const navTabChat = document.getElementById('navTabChat');
+    const navTabTools = document.getElementById('navTabTools');
+    const setActiveNavTab = (tab) => {
+      [navTabRooms, navTabChat, navTabTools].forEach(btn => btn?.classList.remove('active'));
+      tab?.classList.add('active');
+    };
+    navTabRooms?.addEventListener('click', () => {
+      const sidebar = document.querySelector('.sidebar-left');
+      const backdrop = document.getElementById('mobileDrawerBackdrop');
+      const isOpen = sidebar?.classList.contains('open');
+      this.closeMobileDrawers();
+      if (!isOpen) {
+        sidebar?.classList.add('open');
+        backdrop?.classList.add('active');
+        setActiveNavTab(navTabRooms);
+      } else {
+        setActiveNavTab(navTabChat);
+      }
+    });
+    navTabChat?.addEventListener('click', () => {
+      this.closeMobileDrawers();
+      setActiveNavTab(navTabChat);
+    });
+    navTabTools?.addEventListener('click', () => {
+      const drawer = document.querySelector('.drawer-right');
+      const backdrop = document.getElementById('mobileDrawerBackdrop');
+      const isOpen = drawer?.classList.contains('open');
+      this.closeMobileDrawers();
+      if (!isOpen) {
+        drawer?.classList.add('open');
+        backdrop?.classList.add('active');
+        setActiveNavTab(navTabTools);
+      } else {
+        setActiveNavTab(navTabChat);
+      }
+    });
+    // Keep the bottom nav's active tab in sync if drawers are closed via backdrop
+    document.getElementById('mobileDrawerBackdrop')?.addEventListener('click', () => {
+      setActiveNavTab(navTabChat);
+    });
+
+    // Theme Toggle — persists preference in localStorage
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    const applyTheme = (theme) => {
+      if (theme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+        if (themeToggleBtn) themeToggleBtn.textContent = '☀️';
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        if (themeToggleBtn) themeToggleBtn.textContent = '🌙';
+      }
+    };
+    let savedTheme = 'dark';
+    try {
+      savedTheme = localStorage.getItem('technocore-theme') || 'dark';
+    } catch (e) { /* localStorage unavailable — default to dark */ }
+    applyTheme(savedTheme);
+    themeToggleBtn?.addEventListener('click', () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const next = isLight ? 'dark' : 'light';
+      applyTheme(next);
+      try { localStorage.setItem('technocore-theme', next); } catch (e) { /* ignore */ }
+    });
+
     // Bind Right Action Panels
     this.initActionPanels();
   }
