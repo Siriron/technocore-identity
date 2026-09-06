@@ -6,17 +6,10 @@ import {
   generateIdentity,
   signMessage,
   verifySignature,
-  createContributionProof,
   verifyContributionProof,
-  generateNonce,
-  normalizeMessage,
-  privateKeyHexToPem,
-  importFromPem
+  generateNonce
 } from './crypto-helper.js';
 import {
-  loadIdentities,
-  saveIdentity,
-  deleteIdentity,
   loadPresets,
   savePresets
 } from './identity-store.js';
@@ -28,7 +21,27 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 let TARGET_BASE_URL = process.env.TECHNOCORE_BASE_URL || 'https://technocore.chat';
 
-app.use(cors());
+// CORS: restrict to explicitly configured origins. Set ALLOWED_ORIGINS as a
+// comma-separated list (e.g. "https://flop-technocore.vercel.app"). If unset,
+// same-origin requests (no Origin header, e.g. curl/server-to-server) are
+// allowed but cross-origin browser requests from other sites are rejected —
+// safer than the previous wide-open `cors()` default.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true); // same-origin / non-browser
+      if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin not allowed by CORS policy'));
+    }
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -76,6 +89,11 @@ async function fetchTechnocore(urlPath, options = {}) {
 // -------------------------------------------------------------
 // Target Node Configuration
 // -------------------------------------------------------------
+// TARGET_BASE_URL is shared, process-wide state — on a serverless/shared
+// deployment, changing it affects every concurrent user, not just the
+// caller. It is read-only over HTTP unless an ADMIN_CONFIG_SECRET is set
+// and provided, closing the anonymous-hijack path that previously let any
+// visitor silently redirect everyone else's proxy traffic.
 app.get('/api/config/target', (req, res) => {
   res.json({
     targetBaseUrl: TARGET_BASE_URL,
@@ -84,9 +102,18 @@ app.get('/api/config/target', (req, res) => {
 });
 
 app.post('/api/config/target', async (req, res) => {
+  const adminSecret = process.env.ADMIN_CONFIG_SECRET;
+  if (!adminSecret) {
+    return res.status(403).json({
+      error: 'Target node reconfiguration is disabled on this deployment.'
+    });
+  }
+  if (req.get('x-admin-secret') !== adminSecret) {
+    return res.status(401).json({ error: 'Invalid or missing admin secret.' });
+  }
   const { url } = req.body;
-  if (!url || typeof url !== 'string') {
-    return res.status(400).json({ error: 'Valid URL is required' });
+  if (!url || typeof url !== 'string' || !/^https:\/\//i.test(url)) {
+    return res.status(400).json({ error: 'A valid https:// URL is required.' });
   }
   const cleanUrl = url.trim().replace(/\/$/, '');
   try {
@@ -321,97 +348,11 @@ app.get('/api/ownership/room-nonce/:room', async (req, res) => {
   }
 });
 
-// Claim Room Ownership (Signed)
-app.post('/api/ownership/claim', async (req, res) => {
-  try {
-    const { privateKeyHex, did, room } = req.body;
-    if (!room.startsWith('d-')) {
-      return res.status(400).json({ error: 'Only d-* rooms can be owned' });
-    }
-    const nonce = generateNonce();
-    // Signature covers `room-owners|d-<room>|<claim_nonce>|<the same did:key>`
-    const payloadStr = `room-owners|${room}|${nonce}|${did}`;
-    const sigData = await signMessage(privateKeyHex, room, nonce, did);
-    // Path: GET /kv/room-owners/d-<room>/set-signed/<did>/<sig>/<claim_nonce>/<the same did:key>?if_absent=1
-    const targetPath = `/kv/room-owners/${encodeURIComponent(room)}/set-signed/${encodeURIComponent(did)}/${encodeURIComponent(sigData.sig)}/${encodeURIComponent(nonce)}/${encodeURIComponent(did)}?if_absent=1`;
-    const result = await fetchTechnocore(targetPath, { timeout: 10000 });
-    res.status(result.status).send(result.data);
-  } catch (err) {
-    res.status(500).json({ error: `Claim failed: ${err.message}` });
-  }
-});
-
-// Set Room Allow-List (Signed)
-app.post('/api/ownership/allow', async (req, res) => {
-  try {
-    const { privateKeyHex, did, room, allowedDids } = req.body;
-    if (!room.startsWith('d-')) {
-      return res.status(400).json({ error: 'Only d-* rooms have allow-lists' });
-    }
-    const nonce = generateNonce();
-    // Signature covers `room-allow|d-<room>|<greater_nonce>|<value>`
-    const val = allowedDids.join(' ').trim();
-    const sigData = await signMessage(privateKeyHex, room, nonce, val);
-    const targetPath = `/kv/room-allow/${encodeURIComponent(room)}/set-signed/${encodeURIComponent(did)}/${encodeURIComponent(sigData.sig)}/${encodeURIComponent(nonce)}/${encodeURIComponent(val)}`;
-    const result = await fetchTechnocore(targetPath, { timeout: 10000 });
-    res.status(result.status).send(result.data);
-  } catch (err) {
-    res.status(500).json({ error: `Allow-list update failed: ${err.message}` });
-  }
-});
-
-// Export Identity to PEM
-app.post('/api/crypto/export-pem', (req, res) => {
-  try {
-    const { privateKeyHex, passphrase } = req.body;
-    const pem = privateKeyHexToPem(privateKeyHex, passphrase || null);
-    res.json({ pem });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Import Identity from PEM
-app.post('/api/crypto/import-pem', async (req, res) => {
-  try {
-    const { pem, passphrase, alias } = req.body;
-    const identity = await importFromPem(pem, passphrase || null);
-    identity.alias = alias || `Imported-${identity.did.slice(8, 14)}`;
-    identity.createdAt = new Date().toISOString();
-    const saved = saveIdentity(identity);
-    res.json({ identity, all: saved });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// -------------------------------------------------------------
-// Cryptographic Endpoints
-// -------------------------------------------------------------
-
-app.post('/api/crypto/generate-did', async (req, res) => {
-  try {
-    const { alias } = req.body;
-    const identity = await generateIdentity(alias);
-    res.json(identity);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/crypto/sign-message', async (req, res) => {
-  try {
-    const { privateKeyHex, room, nonce, text } = req.body;
-    if (!privateKeyHex || !room || !text) {
-      return res.status(400).json({ error: 'Missing privateKeyHex, room, or text' });
-    }
-    const selectedNonce = nonce || generateNonce();
-    const signed = await signMessage(privateKeyHex, room, selectedNonce, text);
-    res.json(signed);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Room ownership claim/allow-list signing has moved entirely to the browser
+// (see public/js/crypto-client.js) — the signed result is posted through the
+// existing /api/proxy/kv/* and /api/proxy/r/:room routes, so no dedicated
+// server route needs to see privateKeyHex anymore. room-nonce stays, since
+// it only reads public state.
 
 app.post('/api/crypto/verify-signature', async (req, res) => {
   try {
@@ -426,18 +367,8 @@ app.post('/api/crypto/verify-signature', async (req, res) => {
   }
 });
 
-app.post('/api/crypto/create-proof', async (req, res) => {
-  try {
-    const { privateKeyHex, did, artifactUrl, commit } = req.body;
-    if (!privateKeyHex || !did || !artifactUrl || !commit) {
-      return res.status(400).json({ error: 'Missing required proof fields' });
-    }
-    const proof = await createContributionProof(privateKeyHex, did, artifactUrl, commit);
-    res.json(proof);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Contribution-proof creation moved to the browser (crypto-client.js) since
+// it required privateKeyHex. Verification stays here — it's public-key-only.
 
 app.post('/api/crypto/verify-proof', async (req, res) => {
   try {
@@ -454,31 +385,14 @@ app.post('/api/crypto/verify-proof', async (req, res) => {
 // Identity & Presets Management
 // -------------------------------------------------------------
 
-app.get('/api/identities', (req, res) => {
-  res.json(loadIdentities());
-});
-
-app.post('/api/identities', (req, res) => {
-  try {
-    const identity = req.body;
-    if (!identity || !identity.did || !identity.privateKeyHex) {
-      return res.status(400).json({ error: 'Identity must have did and privateKeyHex' });
-    }
-    const updated = saveIdentity(identity);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/identities/:did', (req, res) => {
-  try {
-    const updated = deleteIdentity(req.params.did);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// -------------------------------------------------------------
+// Identity storage removed entirely.
+// -------------------------------------------------------------
+// This used to be a shared, unauthenticated server-side store of raw
+// private keys (GET /api/identities returned everyone's keys to anyone).
+// Identities now live only in the requesting browser — see
+// public/js/crypto-client.js and public/js/local-vault.js. There is
+// intentionally no server-side identity endpoint to replace this with.
 
 app.get('/api/presets', (req, res) => {
   res.json(loadPresets());
