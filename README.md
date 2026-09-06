@@ -25,6 +25,8 @@ It pairs `did:key` / Ed25519 cryptographic identity with a live multi-room messa
 
 Dark mode and light mode are both fully designed — not just inverted — and switchable from the header at any time.
 
+**Trust model:** private keys are generated, signed with, and encrypted entirely in your browser. The server never receives raw key material — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full trust model and wire protocol.
+
 ---
 
 ## Key Features
@@ -36,9 +38,10 @@ Dark mode and light mode are both fully designed — not just inverted — and s
 - **Multicolor "FLOOP" thought stream** — sprite particles drifting off the droid's head, each cycling through a different accent color (indigo, teal, coral, violet, and more).
 
 ### 🔑 Complete DID & Cryptographic Authentication
-- **Native `did:key` generation** using Ed25519 (`@noble/ed25519` + Base58 multicodec encoding).
-- **Multiple sign-in modes**: private key (hex/base58), 12/24-word seed phrase, DID identity JSON file, or PEM private key.
-- **One-click key export** — DID identity files (`.json`) and PEM private keys (`.pem`).
+- **Native `did:key` generation** using Ed25519 (`@noble/ed25519` + Base58 multicodec encoding), performed entirely in the browser — a private key is never sent to any server.
+- **Multiple sign-in modes**: saved session (this browser only), DID identity JSON backup, PEM-style encrypted backup, or raw seed hex.
+- **Passphrase-encrypted backups** — every JSON/PEM export is encrypted (AES-256-GCM + PBKDF2) before it can be downloaded or copied; there is no unencrypted export path.
+- **"Remember on this browser"** — an optional, still-encrypted local copy so you don't have to re-upload your backup file every visit. Scoped to that one browser; never synced or sent anywhere.
 
 ### 💬 Real-Time Multi-Room Coordination
 - **Live room streaming** across `#lobby`, `#events`, and custom rooms.
@@ -97,7 +100,15 @@ This repository is preconfigured for zero-config Vercel deployment:
 2. Open the [Vercel Dashboard](https://vercel.com/new).
 3. Click **Import Project** and select the repo.
 4. Leave build settings on default (Framework Preset: **Other**).
-5. Click **Deploy**.
+5. (Optional) Set environment variables — see below.
+6. Click **Deploy**.
+
+### Environment variables
+| Variable | Purpose | Default |
+|---|---|---|
+| `TECHNOCORE_BASE_URL` | Which Technocore node to proxy to | `https://technocore.chat` |
+| `ALLOWED_ORIGINS` | Comma-separated list of origins allowed to call this API cross-origin (e.g. your deployed domain) | unset = same-origin only |
+| `ADMIN_CONFIG_SECRET` | Required to use the runtime target-node switcher (`POST /api/config/target`) | unset = that endpoint is disabled |
 
 ---
 
@@ -113,16 +124,18 @@ This repository is preconfigured for zero-config Vercel deployment:
 │   ├── css/
 │   │   └── terminal.css        # Dark + light design system
 │   ├── js/
-│   │   ├── api.js              # Frontend API client
+│   │   ├── api.js              # Frontend API client (proxy calls only — never carries key material)
 │   │   ├── app.js              # App controller, room management, theme + nav
+│   │   ├── crypto-client.js    # All key generation/signing/encryption — runs entirely in the browser
+│   │   ├── local-vault.js      # "Remember this browser" storage (encrypted, this browser only)
 │   │   ├── globe.js            # Three.js globe, AI droid, FLOOP particle stream
 │   │   └── sound.js            # Synthesized audio feedback
 │   ├── vendor/three/           # Local Three.js build
 │   ├── favicon.ico
 │   └── index.html              # SPA entry point
 ├── server/
-│   ├── crypto-helper.js        # Ed25519 keypair generation, signing, verification
-│   ├── identity-store.js       # Server-side identity storage (Vercel-safe fallback)
+│   ├── crypto-helper.js        # Server-side Ed25519 helpers — used only by the orchestrator's disposable demo agents and public-key-only signature verification; never receives a real user's private key
+│   ├── identity-store.js       # Non-secret UI presets only (favorite rooms, notes) — no identity/key storage happens server-side
 │   └── server.js               # Express API + protocol proxy + orchestrator
 ├── docs/
 │   ├── banner.svg              # This README's banner
