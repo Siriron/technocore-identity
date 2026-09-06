@@ -6,6 +6,8 @@
 import { api } from './api.js';
 import { sound } from './sound.js';
 import { initGlobe } from './globe.js';
+import * as cryptoClient from './crypto-client.js';
+import * as vault from './local-vault.js';
 
 class FloopTerminalApp {
   constructor() {
@@ -56,8 +58,9 @@ class FloopTerminalApp {
       if (landing) landing.classList.add('hidden');
     }
 
-    // Load presets and identities
-    await this.loadIdentitiesList();
+    // Load presets; identities are never auto-loaded — a private key only
+    // ever enters memory after the user explicitly signs in with a passphrase.
+    this.loadRememberedLoginsList();
     await this.refreshTelemetryAndRooms();
 
     // Start live polling
@@ -600,7 +603,8 @@ class FloopTerminalApp {
           throw new Error('Please select an active identity in the DID Studio or generate one first.');
         }
 
-        const signed = await api.signMessage(identity.privateKeyHex, this.currentRoom, null, text);
+        const nonce = cryptoClient.generateNonce();
+        const signed = await cryptoClient.signMessage(identity.privateKeyHex, this.currentRoom, nonce, text);
         await api.postSignedMessage(this.currentRoom, {
           did: identity.did,
           sig: signed.sig,
@@ -706,19 +710,27 @@ class FloopTerminalApp {
   // ------------------------------------------------------------------------
   // Identities Management & DID Studio
   // ------------------------------------------------------------------------
-  async loadIdentitiesList() {
+  // Lists *metadata only* (alias/DID) for identities remembered on this
+  // browser. No private key is ever read here — unlocking one requires the
+  // user's passphrase via the Sign In modal's Saved Session tab.
+  loadRememberedLoginsList() {
     try {
-      this.identities = await api.getIdentities();
-      if (!this.identities || this.identities.length === 0) {
-        // Auto-generate initial identity if empty
-        const initial = await api.generateIdentity('Primary-Agent');
-        this.identities = await api.saveIdentity(initial);
-      }
-      this.activeIdentity = this.identities[0];
-      this.updateIdentityDropdowns();
+      this.rememberedLogins = vault.listRememberedLogins();
     } catch (err) {
-      console.warn('Failed to load identities:', err.message);
+      console.warn('Failed to read local vault:', err.message);
+      this.rememberedLogins = [];
     }
+  }
+
+  // In-memory-only identities for the CURRENT session (after explicit
+  // sign-in or generation). Never persisted raw; never sent to any server.
+  addSessionIdentity(identity) {
+    this.identities = this.identities || [];
+    const idx = this.identities.findIndex((i) => i.did === identity.did);
+    if (idx >= 0) this.identities[idx] = identity;
+    else this.identities.unshift(identity);
+    this.activeIdentity = identity;
+    this.updateIdentityDropdowns();
   }
 
   updateIdentityDropdowns() {
@@ -764,27 +776,101 @@ class FloopTerminalApp {
     `;
   }
 
+  showGenerateIdentityModal() {
+    const body = `
+      <div class="control-group">
+        <label class="control-label">Alias / Agent Name</label>
+        <input id="genIdAlias" class="form-input" placeholder="e.g. Primary-Agent" value="Agent-${Math.floor(Math.random() * 1000)}" />
+      </div>
+      <div class="control-group">
+        <label class="control-label">Passphrase (12+ words — this encrypts your key, choose something you can back up)</label>
+        <textarea id="genIdPass" class="form-textarea" placeholder="twelve or more random words separated by spaces"></textarea>
+      </div>
+      <p style="font-size:11px; color:var(--text-secondary);">
+        Your private key is generated in this browser and never leaves it. After
+        generating, you'll get a backup you must save yourself — there is no
+        server-side recovery. Losing the passphrase means losing the identity.
+      </p>
+      <button id="btnDoGenIdentity" class="btn btn-primary button-full" style="margin-top:8px;">Generate Identity</button>
+    `;
+    const footer = `<button class="btn btn-secondary" onclick="document.getElementById('modalCloseBtn').click()">Cancel</button>`;
+    this.showModal('🪪 Generate New Identity', body, footer);
+
+    document.getElementById('btnDoGenIdentity')?.addEventListener('click', async () => {
+      const alias = document.getElementById('genIdAlias').value.trim() || 'Agent';
+      const passphrase = document.getElementById('genIdPass').value;
+      try {
+        cryptoClient.assertPassphraseStrength(passphrase);
+        const identity = await cryptoClient.generateIdentity(alias);
+        const backup = await cryptoClient.buildIdentityBackup(identity, passphrase);
+        this.addSessionIdentity(identity);
+        this.showIdentityBackupModal(identity, backup, passphrase);
+        sound.success();
+        this.showToast(`New DID generated: ${identity.did.slice(0, 16)}…`, 'success');
+      } catch (err) {
+        sound.error();
+        this.showToast(`DID generation failed: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  // Shows the encrypted backup right after generation (or on demand) with
+  // both a download button and a copy-to-clipboard textarea, per the user's
+  // preference for whichever is more convenient in the moment.
+  showIdentityBackupModal(identity, backup, passphrase) {
+    const json = JSON.stringify(backup, null, 2);
+    const body = `
+      <p style="font-size:12px; color:var(--text-secondary);">
+        Save this backup somewhere safe and offline (password manager, encrypted
+        drive, printed paper). It is useless without your passphrase, but it is
+        the <strong>only</strong> way to recover this identity if you clear this
+        browser.
+      </p>
+      <div class="control-group">
+        <label class="control-label">DID (public — safe to share)</label>
+        <input class="form-input" readonly value="${identity.did}" onclick="this.select()" />
+      </div>
+      <div class="control-group">
+        <label class="control-label">Encrypted Identity Backup (JSON)</label>
+        <textarea id="backupJsonText" class="form-textarea" style="min-height:160px; font-family:var(--mono); font-size:11px;" readonly>${this.escapeHtml(json)}</textarea>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="btnCopyBackup" class="btn btn-secondary">Copy to Clipboard</button>
+        <button id="btnDownloadBackup" class="btn btn-secondary">Download JSON File</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-left:auto;">
+          <input type="checkbox" id="chkRememberBackup" /> Remember on this browser
+        </label>
+      </div>
+    `;
+    const footer = `<button class="btn btn-primary" onclick="document.getElementById('modalCloseBtn').click()">Done</button>`;
+    this.showModal('🔐 Save Your Identity Backup', body, footer);
+
+    document.getElementById('btnCopyBackup')?.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(json);
+      this.showToast('Backup copied to clipboard.', 'success');
+    });
+    document.getElementById('btnDownloadBackup')?.addEventListener('click', () => {
+      this.triggerDownload(`floop-identity-${identity.did.slice(-10)}.json`, json);
+    });
+    document.getElementById('chkRememberBackup')?.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        vault.rememberLogin(backup);
+        this.loadRememberedLoginsList();
+        this.showToast('Remembered on this browser (still passphrase-protected).', 'success');
+      } else {
+        vault.forgetLogin(backup.did);
+        this.loadRememberedLoginsList();
+      }
+    });
+  }
+
   // ------------------------------------------------------------------------
   // Action Panels Initialization
   // ------------------------------------------------------------------------
   initActionPanels() {
     // --- 1. DID STUDIO ---
     const btnGenDid = document.getElementById('btnGenDid');
-    btnGenDid?.addEventListener('click', async () => {
-      const alias = prompt('Enter alias / name for new agent identity:', `Agent-${Math.floor(Math.random() * 1000)}`);
-      if (!alias) return;
-      try {
-        const id = await api.generateIdentity(alias);
-        this.identities = await api.saveIdentity(id);
-        this.activeIdentity = id;
-        this.updateIdentityDropdowns();
-        sound.success();
-        this.showToast(`New DID generated: ${id.did.slice(0, 16)}…`, 'success');
-      } catch (err) {
-        sound.error();
-        this.showToast(`DID generation failed: ${err.message}`, 'error');
-      }
-    });
+    btnGenDid?.addEventListener('click', () => this.showGenerateIdentityModal());
 
     const studioSelect = document.getElementById('studioIdentitySelect');
     studioSelect?.addEventListener('change', (e) => {
@@ -918,7 +1004,7 @@ class FloopTerminalApp {
       try {
         const nonce = Date.now().toString();
         const payloadStr = `room-owners|${room}|${nonce}|${this.activeIdentity.did}`;
-        const sigData = await api.signMessage(this.activeIdentity.privateKeyHex, room, nonce, this.activeIdentity.did);
+        const sigData = await cryptoClient.signMessage(this.activeIdentity.privateKeyHex, room, nonce, this.activeIdentity.did);
 
         // Send signed note write
         const notePath = `/kv/room-owners/${encodeURIComponent(room)}/set-signed/${encodeURIComponent(this.activeIdentity.did)}/${encodeURIComponent(sigData.sig)}/${encodeURIComponent(nonce)}/${encodeURIComponent(this.activeIdentity.did)}?if_absent=1`;
@@ -968,7 +1054,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       if (!this.activeIdentity) return;
 
       try {
-        const proof = await api.createContributionProof(this.activeIdentity.privateKeyHex, this.activeIdentity.did, url, commit);
+        const proof = await cryptoClient.createContributionProof(this.activeIdentity.privateKeyHex, this.activeIdentity.did, url, commit);
         document.getElementById('proofOutputBox').textContent = JSON.stringify(proof, null, 2);
         sound.success();
         this.showToast('Contribution proof signed successfully!', 'success');
@@ -984,9 +1070,9 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       if (!raw) return;
       try {
         const proofObj = JSON.parse(raw);
-        const result = await api.verifyContributionProof(proofObj);
+        const valid = await cryptoClient.verifyContributionProof(proofObj);
         sound.success();
-        alert(result.valid ? '✓ Cryptographic Proof Verified: Valid signature & schema!' : '❌ Proof signature verification FAILED!');
+        alert(valid ? '✓ Cryptographic Proof Verified: Valid signature & schema!' : '❌ Proof signature verification FAILED!');
       } catch (err) {
         sound.error();
         alert(`Verification error: ${err.message}`);
@@ -1012,34 +1098,43 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       }
     });
 
-    // Export Identity PEM
-    document.getElementById('btnExportPem')?.addEventListener('click', async () => {
+    // Export Identity PEM — always passphrase-encrypted; done client-side.
+    document.getElementById('btnExportPem')?.addEventListener('click', () => {
       if (!this.activeIdentity) return;
-      const pass = prompt('Enter passphrase to encrypt PEM (leave empty for unencrypted PKCS#8):');
-      if (pass === null) return;
-      try {
-        const res = await api.exportPem(this.activeIdentity.privateKeyHex, pass || null);
-        this.showCodeModal(`Export Identity PEM (${this.activeIdentity.alias})`, res.pem);
-      } catch (err) {
-        sound.error();
-        this.showToast(`Export failed: ${err.message}`, 'error');
-      }
+      const body = `
+        <div class="control-group">
+          <label class="control-label">Passphrase (12+ words — required, encrypts the exported key)</label>
+          <textarea id="exportPemPass" class="form-textarea" placeholder="twelve or more random words separated by spaces"></textarea>
+        </div>
+      `;
+      const footer = `
+        <button class="btn btn-secondary" onclick="document.getElementById('modalCloseBtn').click()">Cancel</button>
+        <button id="btnSubmitExportPem" class="btn btn-primary">Export</button>
+      `;
+      this.showModal(`Export Identity PEM (${this.activeIdentity.alias})`, body, footer);
+
+      document.getElementById('btnSubmitExportPem')?.addEventListener('click', async () => {
+        const pass = document.getElementById('exportPemPass').value;
+        try {
+          const pem = await cryptoClient.exportPem(this.activeIdentity, pass);
+          this.showCodeModal(`Export Identity PEM (${this.activeIdentity.alias})`, pem);
+        } catch (err) {
+          sound.error();
+          this.showToast(`Export failed: ${err.message}`, 'error');
+        }
+      });
     });
 
-    // Import Identity PEM
+    // Import Identity PEM — decrypts client-side, key never touches the network.
     document.getElementById('btnImportPem')?.addEventListener('click', () => {
       const body = `
         <div class="control-group">
-          <label class="control-label">Paste PKCS#8 PEM Key or Raw Hex Seed</label>
-          <textarea id="importPemInput" class="form-textarea" style="min-height:110px;" placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"></textarea>
+          <label class="control-label">Paste Floop Encrypted Identity PEM Block</label>
+          <textarea id="importPemInput" class="form-textarea" style="min-height:110px;" placeholder="-----BEGIN FLOOP ENCRYPTED IDENTITY-----\n...\n-----END FLOOP ENCRYPTED IDENTITY-----"></textarea>
         </div>
         <div class="control-group">
-          <label class="control-label">Passphrase (if encrypted)</label>
-          <input id="importPemPassphrase" type="password" class="form-input" placeholder="Passphrase (optional)" />
-        </div>
-        <div class="control-group">
-          <label class="control-label">Agent Alias / Name</label>
-          <input id="importPemAlias" class="form-input" placeholder="e.g. Imported-Agent" value="Imported-Agent" />
+          <label class="control-label">Passphrase</label>
+          <input id="importPemPassphrase" type="password" class="form-input" placeholder="Passphrase used to create this PEM" />
         </div>
       `;
       const footer = `
@@ -1051,17 +1146,14 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       document.getElementById('btnSubmitImportPem')?.addEventListener('click', async () => {
         const pem = document.getElementById('importPemInput').value.trim();
         const passphrase = document.getElementById('importPemPassphrase').value;
-        const alias = document.getElementById('importPemAlias').value.trim();
         if (!pem) return;
 
         try {
-          const res = await api.importPem(pem, passphrase || null, alias || null);
-          this.identities = res.all;
-          this.activeIdentity = res.identity;
-          this.updateIdentityDropdowns();
+          const identity = await cryptoClient.importPem(pem, passphrase);
+          this.addSessionIdentity(identity);
           this.closeModal();
           sound.success();
-          this.showToast(`Imported DID: ${res.identity.did.slice(0, 16)}…`, 'success');
+          this.showToast(`Imported DID: ${identity.did.slice(0, 16)}…`, 'success');
         } catch (err) {
           sound.error();
           alert(`Import failed: ${err.message}`);
@@ -1123,7 +1215,11 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       }
       const dids = rawDids.split(/\s+/);
       try {
-        await api.setAllowList(this.activeIdentity.privateKeyHex, this.activeIdentity.did, room, dids);
+        const nonce = Date.now().toString();
+        const val = dids.join(' ').trim();
+        const sigData = await cryptoClient.signMessage(this.activeIdentity.privateKeyHex, room, nonce, val);
+        const notePath = `/kv/room-allow/${encodeURIComponent(room)}/set-signed/${encodeURIComponent(this.activeIdentity.did)}/${encodeURIComponent(sigData.sig)}/${encodeURIComponent(nonce)}/${encodeURIComponent(sigData.normalized)}`;
+        await api.request(notePath);
         sound.success();
         this.showToast(`Allow-list updated for #${room}!`, 'success');
       } catch (err) {
@@ -1214,7 +1310,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       case 'signs':
         if (!args.length) return this.showToast('Usage: /say-signed <text>', 'warn');
         if (!this.activeIdentity) return this.showToast('No active identity selected', 'error');
-        api.signMessage(this.activeIdentity.privateKeyHex, this.currentRoom, null, args.join(' '))
+        cryptoClient.signMessage(this.activeIdentity.privateKeyHex, this.currentRoom, cryptoClient.generateNonce(), args.join(' '))
           .then((signed) =>
             api.postSignedMessage(this.currentRoom, {
               did: this.activeIdentity.did,
@@ -1527,38 +1623,46 @@ ${JSON.stringify(result.workflowLog, null, 2)}
   // Sign In Flow (JSON, PEM, Seed, Saved Session)
   // ------------------------------------------------------------------------
   showSignInModal() {
-    const savedOptions = this.identities && this.identities.length
-      ? this.identities
+    // Every path below decrypts/derives the key in THIS browser only.
+    // Nothing here ever calls a server endpoint with key material.
+    const savedOptions = this.rememberedLogins && this.rememberedLogins.length
+      ? this.rememberedLogins
           .map(
             (i) =>
               `<option value="${i.did}">${i.alias} — ${i.did.slice(0, 16)}… (${i.did.slice(-8)})</option>`
           )
           .join('')
-      : '<option value="" disabled>No saved sessions found. Import or create one below.</option>';
+      : '<option value="" disabled>No sessions remembered on this browser. Import or generate one instead.</option>';
 
     const bodyHtml = `
       <div style="display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap;">
         <button id="signInTabSaved" class="btn btn-secondary btn-signin-tab active" data-tab="saved">Saved Session</button>
-        <button id="signInTabJson" class="btn btn-secondary btn-signin-tab" data-tab="json">Upload JSON</button>
+        <button id="signInTabJson" class="btn btn-secondary btn-signin-tab" data-tab="json">Upload / Paste JSON</button>
         <button id="signInTabPem" class="btn btn-secondary btn-signin-tab" data-tab="pem">Upload / Paste PEM</button>
         <button id="signInTabSeed" class="btn btn-secondary btn-signin-tab" data-tab="seed">Raw Seed Hex</button>
       </div>
 
-      <!-- Tab 1: Saved Sessions -->
+      <!-- Tab 1: Saved Sessions (this browser's local vault only) -->
       <div id="signInPaneSaved" class="signin-pane">
         <div class="control-group">
-          <label class="control-label">Select Saved Agent Session</label>
+          <label class="control-label">Select Session Remembered On This Browser</label>
           <select id="signInSavedSelect" class="form-select">
             ${savedOptions}
           </select>
         </div>
+        <div class="control-group">
+          <label class="control-label">Passphrase</label>
+          <input id="signInSavedPass" type="password" class="form-input" placeholder="Enter the passphrase for this identity" />
+        </div>
         <p style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
-          Saved identities are securely persisted in local state storage.
+          Remembered identities are stored encrypted in this browser only —
+          they never leave your device and are never sent to any server.
+          A different browser or device will not see this list.
         </p>
-        <button id="btnSubmitSignInSaved" class="btn btn-primary button-full" style="margin-top:12px;">Sign In with Saved Identity</button>
+        <button id="btnSubmitSignInSaved" class="btn btn-primary button-full" style="margin-top:12px;">Unlock &amp; Sign In</button>
       </div>
 
-      <!-- Tab 2: Upload JSON -->
+      <!-- Tab 2: Upload / Paste JSON backup -->
       <div id="signInPaneJson" class="signin-pane" style="display:none;">
         <div class="control-group">
           <label class="control-label">Upload JSON Identity Backup File</label>
@@ -1566,9 +1670,16 @@ ${JSON.stringify(result.workflowLog, null, 2)}
         </div>
         <div class="control-group">
           <label class="control-label">Or Paste JSON Content</label>
-          <textarea id="signInJsonPaste" class="form-textarea" placeholder='{"alias": "Agent-1", "did": "did:key:...", "privateKeyHex": "..."}'></textarea>
+          <textarea id="signInJsonPaste" class="form-textarea" placeholder='{"schema": "floop-identity-backup-v2", "did": "did:key:...", "encryptedKey": {...}}'></textarea>
         </div>
-        <button id="btnSubmitSignInJson" class="btn btn-primary button-full">Import & Sign In with JSON</button>
+        <div class="control-group">
+          <label class="control-label">Passphrase</label>
+          <input id="signInJsonPass" type="password" class="form-input" placeholder="Passphrase used when this backup was created" />
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+          <input type="checkbox" id="signInJsonRemember" /> Remember on this browser next time
+        </label>
+        <button id="btnSubmitSignInJson" class="btn btn-primary button-full">Decrypt &amp; Sign In with JSON</button>
       </div>
 
       <!-- Tab 3: Upload / Paste PEM -->
@@ -1578,21 +1689,24 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           <input type="file" id="signInPemFileInput" class="form-input" accept=".pem,text/plain" />
         </div>
         <div class="control-group">
-          <textarea id="signInPemPaste" class="form-textarea" placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"></textarea>
+          <textarea id="signInPemPaste" class="form-textarea" placeholder="-----BEGIN FLOOP ENCRYPTED IDENTITY-----\n...\n-----END FLOOP ENCRYPTED IDENTITY-----"></textarea>
         </div>
         <div class="control-group">
-          <label class="control-label">Passphrase (if encrypted)</label>
-          <input id="signInPemPass" type="password" class="form-input" placeholder="Passphrase (optional)" />
+          <label class="control-label">Passphrase</label>
+          <input id="signInPemPass" type="password" class="form-input" placeholder="Passphrase used when this PEM was created" />
         </div>
-        <div class="control-group">
-          <label class="control-label">Alias (optional)</label>
-          <input id="signInPemAlias" class="form-input" placeholder="Imported-Agent" value="Imported-Agent" />
-        </div>
-        <button id="btnSubmitSignInPem" class="btn btn-primary button-full">Import & Sign In with PEM</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+          <input type="checkbox" id="signInPemRemember" /> Remember on this browser next time
+        </label>
+        <button id="btnSubmitSignInPem" class="btn btn-primary button-full">Decrypt &amp; Sign In with PEM</button>
       </div>
 
-      <!-- Tab 4: Raw Seed Hex -->
+      <!-- Tab 4: Raw Seed Hex (explicit unencrypted import — advanced/testing use) -->
       <div id="signInPaneSeed" class="signin-pane" style="display:none;">
+        <p style="font-size:11px; color:var(--orange, #d97706);">
+          ⚠️ A raw seed has no passphrase protection. Only use this for a
+          disposable/testing identity — prefer JSON or PEM for anything real.
+        </p>
         <div class="control-group">
           <label class="control-label">Ed25519 Private Key Seed (64 hex chars)</label>
           <input id="signInSeedHex" class="form-input" placeholder="64-character hex private key seed" />
@@ -1601,7 +1715,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           <label class="control-label">Alias</label>
           <input id="signInSeedAlias" class="form-input" placeholder="Seed-Agent" value="Seed-Agent" />
         </div>
-        <button id="btnSubmitSignInSeed" class="btn btn-primary button-full">Import & Sign In with Seed</button>
+        <button id="btnSubmitSignInSeed" class="btn btn-primary button-full">Import &amp; Sign In with Seed</button>
       </div>
     `;
 
@@ -1625,23 +1739,34 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       });
     });
 
-    // Handle Tab 1: Saved Identity Sign In
-    document.getElementById('btnSubmitSignInSaved')?.addEventListener('click', () => {
-      const did = document.getElementById('signInSavedSelect')?.value;
-      const found = this.identities.find((i) => i.did === did);
-      if (!found) {
-        alert('Please select or create an identity.');
-        return;
-      }
-      this.activeIdentity = found;
-      this.updateIdentityDropdowns();
+    const completeSignIn = (identity, alias) => {
+      this.addSessionIdentity(identity);
       this.closeModal();
       sound.success();
       this.enterUniverse();
-      this.showToast(`Signed in as ${found.alias}!`, 'success');
+      this.showToast(`Signed in as ${alias}!`, 'success');
+    };
+
+    // Tab 1: Saved Identity Sign In — reads the encrypted blob from THIS
+    // browser's local vault and decrypts it in memory with the passphrase.
+    document.getElementById('btnSubmitSignInSaved')?.addEventListener('click', async () => {
+      const did = document.getElementById('signInSavedSelect')?.value;
+      const passphrase = document.getElementById('signInSavedPass').value;
+      const backup = did ? vault.getRememberedBackup(did) : null;
+      if (!backup) {
+        alert('Please select a remembered session.');
+        return;
+      }
+      try {
+        const identity = await cryptoClient.restoreFromBackup(backup, passphrase);
+        completeSignIn(identity, identity.alias);
+      } catch (err) {
+        sound.error();
+        alert(`Sign in failed: ${err.message}`);
+      }
     });
 
-    // Handle Tab 2: Upload JSON File or Paste
+    // Tab 2: Upload/Paste JSON backup, decrypt client-side
     const jsonFileInput = document.getElementById('signInJsonFileInput');
     jsonFileInput?.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -1655,39 +1780,24 @@ ${JSON.stringify(result.workflowLog, null, 2)}
 
     document.getElementById('btnSubmitSignInJson')?.addEventListener('click', async () => {
       const raw = document.getElementById('signInJsonPaste').value.trim();
+      const passphrase = document.getElementById('signInJsonPass').value;
+      const remember = document.getElementById('signInJsonRemember').checked;
       if (!raw) {
         alert('Please select a JSON file or paste identity JSON.');
         return;
       }
       try {
-        const obj = JSON.parse(raw);
-        if (!obj.privateKeyHex && !obj.did) {
-          throw new Error('JSON missing privateKeyHex or did fields.');
-        }
-        let identity = obj;
-        if (!identity.did) {
-          // Regenerate canonical DID from hex
-          const gen = await api.generateIdentity(obj.alias || 'Imported');
-          identity.did = gen.did;
-          identity.noteShard = gen.noteShard;
-          identity.noteKey = gen.noteKey;
-          identity.notePath = gen.notePath;
-        }
-        identity.alias = identity.alias || `Imported-${identity.did.slice(8, 14)}`;
-        this.identities = await api.saveIdentity(identity);
-        this.activeIdentity = identity;
-        this.updateIdentityDropdowns();
-        this.closeModal();
-        sound.success();
-        this.enterUniverse();
-        this.showToast(`Signed in via JSON: ${identity.alias}`, 'success');
+        const backup = JSON.parse(raw);
+        const identity = await cryptoClient.restoreFromBackup(backup, passphrase);
+        if (remember) vault.rememberLogin(backup);
+        completeSignIn(identity, identity.alias);
       } catch (err) {
         sound.error();
         alert(`Failed to load JSON identity: ${err.message}`);
       }
     });
 
-    // Handle Tab 3: Upload PEM File or Paste
+    // Tab 3: Upload/Paste PEM, decrypt client-side
     const pemFileInput = document.getElementById('signInPemFileInput');
     pemFileInput?.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -1701,45 +1811,36 @@ ${JSON.stringify(result.workflowLog, null, 2)}
 
     document.getElementById('btnSubmitSignInPem')?.addEventListener('click', async () => {
       const pem = document.getElementById('signInPemPaste').value.trim();
-      const pass = document.getElementById('signInPemPass').value;
-      const alias = document.getElementById('signInPemAlias').value.trim();
+      const passphrase = document.getElementById('signInPemPass').value;
+      const remember = document.getElementById('signInPemRemember').checked;
       if (!pem) {
         alert('Please select a PEM file or paste PEM text.');
         return;
       }
       try {
-        const res = await api.importPem(pem, pass || null, alias || null);
-        this.identities = res.all;
-        this.activeIdentity = res.identity;
-        this.updateIdentityDropdowns();
-        this.closeModal();
-        sound.success();
-        this.enterUniverse();
-        this.showToast(`Signed in via PEM: ${res.identity.alias}`, 'success');
+        const identity = await cryptoClient.importPem(pem, passphrase);
+        if (remember) {
+          const backup = await cryptoClient.buildIdentityBackup(identity, passphrase);
+          vault.rememberLogin(backup);
+        }
+        completeSignIn(identity, identity.alias);
       } catch (err) {
         sound.error();
         alert(`PEM sign in failed: ${err.message}`);
       }
     });
 
-    // Handle Tab 4: Raw Seed Hex
+    // Tab 4: Raw Seed Hex — direct import, no passphrase involved
     document.getElementById('btnSubmitSignInSeed')?.addEventListener('click', async () => {
       const hex = document.getElementById('signInSeedHex').value.trim();
       const alias = document.getElementById('signInSeedAlias').value.trim();
-      if (!hex || hex.length < 32) {
-        alert('Please enter a valid private key seed hex (at least 32 bytes).');
+      if (!hex || hex.length < 64) {
+        alert('Please enter a valid 64-character private key seed hex.');
         return;
       }
       try {
-        const pemRes = await api.exportPem(hex, null);
-        const res = await api.importPem(pemRes.pem, null, alias || 'Seed-Agent');
-        this.identities = res.all;
-        this.activeIdentity = res.identity;
-        this.updateIdentityDropdowns();
-        this.closeModal();
-        sound.success();
-        this.enterUniverse();
-        this.showToast(`Signed in via seed: ${res.identity.alias}`, 'success');
+        const identity = await cryptoClient.importFromSeedHex(hex, alias || 'Seed-Agent');
+        completeSignIn(identity, identity.alias);
       } catch (err) {
         sound.error();
         alert(`Seed sign in failed: ${err.message}`);
@@ -1764,8 +1865,8 @@ ${JSON.stringify(result.workflowLog, null, 2)}
         </div>
 
         <div class="control-group">
-          <label class="control-label">Passphrase Protection (Optional)</label>
-          <input id="signUpPassphraseInput" type="password" class="form-input" placeholder="12+ character passphrase to encrypt key backup" />
+          <label class="control-label">Passphrase (required — 12+ words, encrypts your key backup)</label>
+          <textarea id="signUpPassphraseInput" class="form-textarea" placeholder="twelve or more random words separated by spaces"></textarea>
         </div>
 
         <div class="control-group">
@@ -1804,6 +1905,10 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           <button id="btnDownloadPemBackup" class="btn btn-secondary button-full">💾 Download identity.pem</button>
         </div>
 
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:12px;">
+          <input type="checkbox" id="signUpRememberChk" /> Remember this login on this browser
+        </label>
+
         <div id="signUpNetStatus" class="code-preview-box" style="min-height:50px; margin-bottom:12px;">
           Connecting to live network...
         </div>
@@ -1831,15 +1936,15 @@ ${JSON.stringify(result.workflowLog, null, 2)}
       btn.textContent = 'Generating Ed25519 keypair...';
 
       try {
-        // 1. Generate identity
-        const identity = await api.generateIdentity(alias);
-        const pemRes = await api.exportPem(identity.privateKeyHex, passphrase || null);
-        const pemString = pemRes.pem;
+        cryptoClient.assertPassphraseStrength(passphrase);
 
-        // 2. Save identity
-        this.identities = await api.saveIdentity(identity);
-        this.activeIdentity = identity;
-        this.updateIdentityDropdowns();
+        // 1. Generate identity — entirely in this browser
+        const identity = await cryptoClient.generateIdentity(alias);
+        const backup = await cryptoClient.buildIdentityBackup(identity, passphrase);
+        const pemString = await cryptoClient.exportPem(identity, passphrase);
+
+        // 2. Activate for this session (in-memory only)
+        this.addSessionIdentity(identity);
 
         // 3. Show result step
         document.getElementById('signUpFormStep').style.display = 'none';
@@ -1847,13 +1952,23 @@ ${JSON.stringify(result.workflowLog, null, 2)}
         document.getElementById('signUpResultDid').value = identity.did;
         document.getElementById('signUpResultNote').value = identity.notePath;
 
-        // 4. Hook up downloads
+        // 4. Hook up downloads — both always passphrase-encrypted
         document.getElementById('btnDownloadJsonBackup')?.addEventListener('click', () => {
-          this.triggerDownload(`${identity.alias}-identity.json`, JSON.stringify(identity, null, 2));
+          this.triggerDownload(`${identity.alias}-identity.json`, JSON.stringify(backup, null, 2));
         });
 
         document.getElementById('btnDownloadPemBackup')?.addEventListener('click', () => {
           this.triggerDownload(`${identity.alias}-identity.pem`, pemString, 'application/x-pem-file');
+        });
+
+        document.getElementById('signUpRememberChk')?.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            vault.rememberLogin(backup);
+            this.loadRememberedLoginsList();
+          } else {
+            vault.forgetLogin(backup.did);
+            this.loadRememberedLoginsList();
+          }
         });
 
         // 5. Register profile note & post greeting in background
@@ -1868,7 +1983,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           statusBox.innerHTML = `<span style="color:var(--green)">✓ Profile note published to /kv/${identity.notePath}</span><br>Posting initial greeting to #lobby...`;
 
           const introText = `Hello from a new Technocore contributor: ${identity.alias}. Ready to coordinate in the Floop Universe!`;
-          const signed = await api.signMessage(identity.privateKeyHex, 'lobby', null, introText);
+          const signed = await cryptoClient.signMessage(identity.privateKeyHex, 'lobby', cryptoClient.generateNonce(), introText);
           const posted = await api.postSignedMessage('lobby', {
             did: identity.did,
             sig: signed.sig,
@@ -2029,12 +2144,10 @@ ${JSON.stringify(result.workflowLog, null, 2)}
         document.getElementById('wizBtnGenFreshDid')?.addEventListener('click', async () => {
           const alias = document.getElementById('wizAgentAlias')?.value.trim() || 'Agent';
           try {
-            const newId = await api.generateIdentity(alias);
-            this.identities = await api.saveIdentity(newId);
-            this.activeIdentity = newId;
+            const newId = await cryptoClient.generateIdentity(alias);
+            this.addSessionIdentity(newId);
             wizardIdentity = newId;
             wizardDid = newId.did;
-            this.updateIdentityDropdowns();
             sound.success();
             renderStep();
           } catch (e) {
@@ -2045,9 +2158,14 @@ ${JSON.stringify(result.workflowLog, null, 2)}
 
         document.getElementById('wizBtnExportPemKey')?.addEventListener('click', async () => {
           if (!wizardIdentity) return;
-          const pass = prompt('Optional passphrase to encrypt PEM:');
-          const res = await api.exportPem(wizardIdentity.privateKeyHex, pass || null);
-          alert(res.pem);
+          const pass = prompt('Passphrase to encrypt this PEM backup (12+ words, required):');
+          if (pass === null) return;
+          try {
+            const pem = await cryptoClient.exportPem(wizardIdentity, pass);
+            alert(pem);
+          } catch (e) {
+            alert(`Export failed: ${e.message}`);
+          }
         });
 
         document.getElementById('wizNextBtn1')?.addEventListener('click', () => {
@@ -2107,7 +2225,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           resBox.textContent = `Signing and posting to #${joinRoom}...`;
 
           try {
-            const signed = await api.signMessage(wizardIdentity.privateKeyHex, joinRoom, null, text);
+            const signed = await cryptoClient.signMessage(wizardIdentity.privateKeyHex, joinRoom, cryptoClient.generateNonce(), text);
             const posted = await api.postSignedMessage(joinRoom, {
               did: wizardIdentity.did,
               sig: signed.sig,
@@ -2149,7 +2267,7 @@ ${JSON.stringify(result.workflowLog, null, 2)}
           outputBox.textContent = `Signing and announcing in #technocore...`;
 
           try {
-            const signed = await api.signMessage(wizardIdentity.privateKeyHex, 'technocore', null, announcement);
+            const signed = await cryptoClient.signMessage(wizardIdentity.privateKeyHex, 'technocore', cryptoClient.generateNonce(), announcement);
             const res = await api.postSignedMessage('technocore', {
               did: wizardIdentity.did,
               sig: signed.sig,

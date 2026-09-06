@@ -111,23 +111,8 @@ export class FloopApi {
     return this.request('/api/proxy/openapi');
   }
 
-  // Crypto helpers
-  async generateIdentity(alias) {
-    return this.request('/api/crypto/generate-did', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alias })
-    });
-  }
-
-  async signMessage(privateKeyHex, room, nonce, text) {
-    return this.request('/api/crypto/sign-message', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privateKeyHex, room, nonce, text })
-    });
-  }
-
+  // Crypto verification helper (public-key only — safe server round-trip,
+  // kept for parity; crypto-client.js can also do this fully offline).
   async verifySignature(did, room, nonce, text, sig) {
     return this.request('/api/crypto/verify-signature', {
       method: 'POST',
@@ -136,41 +121,14 @@ export class FloopApi {
     });
   }
 
-  async createContributionProof(privateKeyHex, did, artifactUrl, commit) {
-    return this.request('/api/crypto/create-proof', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privateKeyHex, did, artifactUrl, commit })
-    });
-  }
+  // NOTE: generateIdentity, signMessage, exportPem, importPem,
+  // createContributionProof, verifyContributionProof, saveIdentity,
+  // getIdentities, deleteIdentity, claimOwnership, and setAllowList have
+  // been intentionally removed from this client. Private key material must
+  // never be sent to the server — see public/js/crypto-client.js, which
+  // performs all of this in the browser instead.
 
-  async verifyContributionProof(proof) {
-    return this.request('/api/crypto/verify-proof', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ proof })
-    });
-  }
-
-  // Identities & Presets
-  async getIdentities() {
-    return this.request('/api/identities');
-  }
-
-  async saveIdentity(identity) {
-    return this.request('/api/identities', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(identity)
-    });
-  }
-
-  async deleteIdentity(did) {
-    return this.request(`/api/identities/${encodeURIComponent(did)}`, {
-      method: 'DELETE'
-    });
-  }
-
+  // Presets
   async getPresets() {
     return this.request('/api/presets');
   }
@@ -189,40 +147,6 @@ export class FloopApi {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskPrompt, room })
-    });
-  }
-
-  // PEM Export & Import
-  async exportPem(privateKeyHex, passphrase = null) {
-    return this.request('/api/crypto/export-pem', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privateKeyHex, passphrase })
-    });
-  }
-
-  async importPem(pem, passphrase = null, alias = null) {
-    return this.request('/api/crypto/import-pem', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pem, passphrase, alias })
-    });
-  }
-
-  // Room Ownership
-  async claimOwnership(privateKeyHex, did, room) {
-    return this.request('/api/ownership/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privateKeyHex, did, room })
-    });
-  }
-
-  async setAllowList(privateKeyHex, did, room, allowedDids) {
-    return this.request('/api/ownership/allow', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privateKeyHex, did, room, allowedDids })
     });
   }
 
